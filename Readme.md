@@ -1,4 +1,4 @@
-# Grandma's Launcher — Backend
+# Grandma's Launcher -> Backend
 
 REST API built with Fastify + TypeScript. Powers the caretaker PWA and the Android launcher device.
 
