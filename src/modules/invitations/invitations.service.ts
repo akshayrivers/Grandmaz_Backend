@@ -17,6 +17,18 @@ export class InvitationsService {
     email,
     deviceName,
   }: CreateInvitationInput): Promise<{ invitation: InvitationRecord; inviteUrl: string }> {
+    // Resolve string device_id (or UUID string) to target devices.id UUID
+    const deviceRes = await query(
+      `SELECT id FROM devices WHERE device_id = $1 OR id::text = $1`,
+      [deviceId]
+    );
+
+    if (deviceRes.rows.length === 0) {
+      throw new Error(`Device not found for identifier: ${deviceId}`);
+    }
+
+    const deviceUuid = deviceRes.rows[0].id;
+
     const token = randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days expiration
 
@@ -24,7 +36,7 @@ export class InvitationsService {
       `INSERT INTO caretaker_invitations (device_id, email, token, expires_at)
        VALUES ($1, $2, $3, $4)
        RETURNING id, device_id, email, token, expires_at, accepted_at, created_at`,
-      [deviceId, email.toLowerCase().trim(), token, expiresAt]
+      [deviceUuid, email.toLowerCase().trim(), token, expiresAt]
     );
 
     const row = res.rows[0];

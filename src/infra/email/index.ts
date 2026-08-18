@@ -1,4 +1,4 @@
-import { getResendClient } from "./client.js";
+import { getTransporter } from "./client.js";
 import { renderMagicLinkEmail } from "./templates/magic-link.js";
 import { env } from "../../config/index.js";
 
@@ -14,13 +14,13 @@ export async function sendInvitationEmail({
   deviceName,
 }: SendInvitationOptions): Promise<{ success: boolean; inviteUrl: string; messageId?: string | undefined }> {
   const inviteUrl = `${env.CARETAKER_WEB_URL}/accept-invitation?token=${encodeURIComponent(invitationToken)}`;
-  const resend = getResendClient();
+  const transport = getTransporter();
 
   const { subject, html, text } = renderMagicLinkEmail({ inviteUrl, deviceName });
 
-  if (!resend) {
+  if (!transport) {
     console.log("--------------------------------------------------");
-    console.log("💌 [DEV MODE - NO RESEND API KEY]");
+    console.log("💌 [DEV MODE - NO SMTP CONFIG]");
     console.log(`To: ${toEmail}`);
     console.log(`Subject: ${subject}`);
     console.log(`Magic Link URL: ${inviteUrl}`);
@@ -29,17 +29,17 @@ export async function sendInvitationEmail({
   }
 
   try {
-    const data = await resend.emails.send({
+    const info = await transport.sendMail({
       from: env.EMAIL_FROM,
-      to: [toEmail],
+      to: toEmail,
       subject,
       html,
       text,
     });
 
-    return { success: true, inviteUrl, messageId: data.data?.id };
+    return { success: true, inviteUrl, messageId: info.messageId };
   } catch (error) {
-    console.error("❌ Error sending email via Resend:", error);
+    console.error("❌ Error sending email via SMTP:", error);
     throw new Error("Failed to send invitation email");
   }
 }
