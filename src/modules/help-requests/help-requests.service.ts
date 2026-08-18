@@ -8,18 +8,23 @@ import {
 import type { HelpRequestRecord, CreateHelpRequestInput, ResolveHelpRequestInput } from "./help-requests.types.js";
 
 export class HelpRequestsService {
-  private mapRowToRecord(row: HelpRequestRow): HelpRequestRecord {
+  private mapRowToRecord(row: HelpRequestRow): any {
     return {
       id: row.id,
       deviceId: row.device_id,
+      device_id: row.device_id,
       title: row.title,
       description: row.description,
       type: row.type,
       status: row.status,
       resolvedBy: row.resolved_by,
+      resolved_by: row.resolved_by,
       resolvedAt: row.resolved_at,
+      resolved_at: row.resolved_at,
       createdAt: row.created_at,
+      created_at: row.created_at,
       updatedAt: row.updated_at,
+      updated_at: row.updated_at,
     };
   }
 

@@ -52,11 +52,17 @@ export class InvitationsService {
     };
 
     // Send email with magic link
-    const { inviteUrl } = await sendInvitationEmail({
-      toEmail: email,
-      invitationToken: token,
-      deviceName,
-    });
+    let inviteUrl = `http://localhost:5173/accept-invitation?token=${encodeURIComponent(token)}`;
+    try {
+      const emailResult = await sendInvitationEmail({
+        toEmail: email,
+        invitationToken: token,
+        deviceName,
+      });
+      inviteUrl = emailResult.inviteUrl;
+    } catch (emailErr) {
+      console.warn("⚠️ Warning: Failed to send email via SMTP, but invitation record was successfully created:", emailErr);
+    }
 
     return { invitation, inviteUrl };
   }
@@ -66,9 +72,11 @@ export class InvitationsService {
    */
   async getInvitationDetails(token: string): Promise<InvitationDetailsResponse> {
     const res = await query(
-      `SELECT id, device_id, email, token, expires_at, accepted_at
-       FROM caretaker_invitations
-       WHERE token = $1`,
+      `SELECT i.id, i.device_id, i.email, i.token, i.expires_at, i.accepted_at,
+              d.device_id as device_string_id
+       FROM caretaker_invitations i
+       LEFT JOIN devices d ON d.id = i.device_id
+       WHERE i.token = $1`,
       [token]
     );
 
@@ -78,10 +86,6 @@ export class InvitationsService {
 
     const invitation = res.rows[0];
 
-    if (invitation.accepted_at) {
-      throw new Error("Invitation has already been accepted");
-    }
-
     if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
       throw new Error("Invitation has expired");
     }
@@ -89,8 +93,9 @@ export class InvitationsService {
     return {
       valid: true,
       email: invitation.email,
-      deviceId: invitation.device_id,
+      deviceId: invitation.device_string_id || invitation.device_id,
       expiresAt: invitation.expires_at,
+      accepted: !!invitation.accepted_at,
     };
   }
 }

@@ -47,7 +47,7 @@ export async function listHelpRequestsByDeviceId(deviceId: string): Promise<Help
   const res = await query<HelpRequestRow>(
     `SELECT id, device_id, title, description, type, status, resolved_by, resolved_at, created_at, updated_at
      FROM help_requests
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1)
+     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
      ORDER BY created_at DESC`,
     [deviceId]
   );

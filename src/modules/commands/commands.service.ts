@@ -8,11 +8,13 @@ import {
 import type { TaskRecord, CreateTaskInput, UpdateTaskStatusInput } from "./command.types.js";
 
 export class CommandsService {
-  private mapRowToRecord(row: TaskRow): TaskRecord {
+  private mapRowToRecord(row: TaskRow): any {
     return {
       id: row.id,
       deviceId: row.device_id,
+      device_id: row.device_id,
       createdBy: row.created_by,
+      created_by: row.created_by,
       title: row.title,
       description: row.description,
       command: row.command,
@@ -20,9 +22,13 @@ export class CommandsService {
       status: row.status,
       result: row.result,
       scheduledAt: row.scheduled_at,
+      scheduled_at: row.scheduled_at,
       completedAt: row.completed_at,
+      completed_at: row.completed_at,
       createdAt: row.created_at,
+      created_at: row.created_at,
       updatedAt: row.updated_at,
+      updated_at: row.updated_at,
     };
   }
 

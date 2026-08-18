@@ -27,6 +27,15 @@ export async function linkCaretakerToDevice(data: {
   deviceId: string;
   role?: string;
 }): Promise<DeviceCaretakerRow> {
+  const dev = await query<{ id: string }>(
+    `SELECT id FROM devices WHERE id::text = $1 OR device_id = $1 LIMIT 1`,
+    [data.deviceId]
+  );
+  if (dev.rows.length === 0 || !dev.rows[0]) {
+    throw new Error(`Device not found for identifier: ${data.deviceId}`);
+  }
+  const deviceUuid = dev.rows[0].id;
+
   const res = await query<DeviceCaretakerRow>(
     `INSERT INTO device_caretakers (caretaker_id, device_id, role, status)
      VALUES ($1, $2, COALESCE($3, 'primary'), 'active')
@@ -35,7 +44,7 @@ export async function linkCaretakerToDevice(data: {
        role = COALESCE($3, device_caretakers.role),
        updated_at = NOW()
      RETURNING id, caretaker_id, device_id, role, status, created_at, updated_at`,
-    [data.caretakerId, data.deviceId, data.role || 'primary']
+    [data.caretakerId, deviceUuid, data.role || 'primary']
   );
   if (!res.rows[0]) {
     throw new Error("Failed to link caretaker to device");
@@ -46,7 +55,7 @@ export async function linkCaretakerToDevice(data: {
 export async function unlinkCaretakerFromDevice(caretakerId: string, deviceId: string): Promise<boolean> {
   const res = await query(
     `DELETE FROM device_caretakers
-     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2)`,
+     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2 OR id::text = $2)`,
     [caretakerId, deviceId]
   );
   return (res.rowCount ?? 0) > 0;
@@ -58,7 +67,7 @@ export async function getCaretakersByDeviceId(deviceId: string): Promise<Caretak
             u.email, u.name, u.avatar_url, dc.created_at
      FROM device_caretakers dc
      INNER JOIN users u ON u.id = dc.caretaker_id
-     WHERE dc.device_id IN (SELECT id FROM devices WHERE device_id = $1)
+     WHERE dc.device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
      ORDER BY dc.created_at ASC`,
     [deviceId]
   );
@@ -73,7 +82,7 @@ export async function updateCaretakerRole(
   const res = await query<DeviceCaretakerRow>(
     `UPDATE device_caretakers
      SET role = $3, updated_at = NOW()
-     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2)
+     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2 OR id::text = $2)
      RETURNING id, caretaker_id, device_id, role, status, created_at, updated_at`,
     [caretakerId, deviceId, role]
   );
@@ -83,7 +92,7 @@ export async function updateCaretakerRole(
 export async function checkCaretakerAccess(caretakerId: string, deviceId: string): Promise<boolean> {
   const res = await query(
     `SELECT 1 FROM device_caretakers
-     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2)
+     WHERE caretaker_id = $1 AND device_id IN (SELECT id FROM devices WHERE device_id = $2 OR id::text = $2)
        AND status = 'active'`,
     [caretakerId, deviceId]
   );

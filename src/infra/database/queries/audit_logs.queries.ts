@@ -42,7 +42,7 @@ export async function listAuditLogsByDeviceId(deviceId: string): Promise<AuditLo
   const res = await query<AuditLogRow>(
     `SELECT id, device_id, user_id, action, details, ip_address, created_at
      FROM audit_logs
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1)
+     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
      ORDER BY created_at DESC
      LIMIT 100`,
     [deviceId]

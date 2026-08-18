@@ -61,7 +61,7 @@ export async function listTasksByDeviceId(deviceId: string, status?: string): Pr
   const res = await query<TaskRow>(
     `SELECT id, device_id, created_by, title, description, command, payload, status, result, scheduled_at, completed_at, created_at, updated_at
      FROM tasks
-      WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1)
+      WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
         AND ($2::varchar IS NULL OR status = $2)
      ORDER BY scheduled_at DESC`,
     [deviceId, status || null]

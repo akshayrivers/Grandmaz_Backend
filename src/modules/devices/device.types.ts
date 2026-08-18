@@ -13,6 +13,25 @@ export interface DeviceRecord {
   deviceMetadata: DeviceMetadata | null;
   isVerified: boolean;
   status: string;
+  lastActiveAt?: Date | null | undefined;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CaretakerDeviceRecord {
+  id: string;
+  deviceId: string;
+  deviceUuid: string;
+  displayName: string;
+  publicKey: string;
+  deviceMetadata: DeviceMetadata | null;
+  isVerified: boolean;
+  status: string;
+  lastActiveAt: Date | null;
+  batteryLevel: number | null;
+  batteryStatus: string | null;
+  wifiSsid: string | null;
+  caretakerRole: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +54,8 @@ export interface VerifyChallengeInput {
 
 export interface VerifyChallengeResult {
   verified: boolean;
+  is_verified?: boolean | undefined;
+  isVerified?: boolean | undefined;
   message: string;
   deviceId: string;
 }

@@ -24,6 +24,15 @@ describe("InvitationsService", () => {
       const mockDeviceId = "dev-123";
       const mockEmail = "caretaker@test.com";
 
+      // Mock device UUID resolution
+      vi.mocked(dbClient.query).mockResolvedValueOnce({
+        rows: [{ id: "device-uuid-1" }],
+        rowCount: 1,
+        command: "SELECT",
+        oid: 0,
+        fields: [],
+      });
+
       vi.mocked(dbClient.query).mockResolvedValueOnce({
         rows: [
           {
@@ -49,7 +58,7 @@ describe("InvitationsService", () => {
 
       expect(result.invitation.id).toBe("inv-uuid-1");
       expect(result.inviteUrl).toContain("/accept-invitation?token=");
-      expect(dbClient.query).toHaveBeenCalledTimes(1);
+      expect(dbClient.query).toHaveBeenCalledTimes(2);
       expect(emailInfra.sendInvitationEmail).toHaveBeenCalledTimes(1);
     });
   });

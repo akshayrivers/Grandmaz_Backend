@@ -75,11 +75,20 @@ describe("AuthService", () => {
         fields: [],
       });
 
+      // Mock auto-link of pending invitations (no pending rows)
+      vi.mocked(dbClient.query).mockResolvedValueOnce({
+        rows: [],
+        rowCount: 0,
+        command: "SELECT",
+        oid: 0,
+        fields: [],
+      });
+
       const user = await authService.verifyAndSyncUser(mockFirebaseUser);
 
       expect(user.id).toBe("user-uuid-1");
       expect(user.name).toBe("Test Caretaker");
-      expect(dbClient.query).toHaveBeenCalledTimes(2);
+      expect(dbClient.query).toHaveBeenCalledTimes(3);
     });
   });
 
@@ -141,7 +150,16 @@ describe("AuthService", () => {
         fields: [],
       });
 
-      // 4. Mock device_caretakers insert query
+      // 4. Mock auto-link of pending invitations (no pending rows)
+      vi.mocked(dbClient.query).mockResolvedValueOnce({
+        rows: [],
+        rowCount: 0,
+        command: "SELECT",
+        oid: 0,
+        fields: [],
+      });
+
+      // 5. Mock device_caretakers insert query
       vi.mocked(dbClient.query).mockResolvedValueOnce({
         rows: [],
         rowCount: 1,
@@ -150,11 +168,28 @@ describe("AuthService", () => {
         fields: [],
       });
 
-      // 5. Mock invitation update query
+      // 6. Mock invitation update query
       vi.mocked(dbClient.query).mockResolvedValueOnce({
         rows: [],
         rowCount: 1,
         command: "UPDATE",
+        oid: 0,
+        fields: [],
+      });
+
+      // 7. Mock device details fetch query
+      vi.mocked(dbClient.query).mockResolvedValueOnce({
+        rows: [
+          {
+            id: "device-uuid-999",
+            device_id: "device-uuid-999",
+            device_metadata: null,
+            is_verified: false,
+            status: "active",
+          },
+        ],
+        rowCount: 1,
+        command: "SELECT",
         oid: 0,
         fields: [],
       });

@@ -53,7 +53,7 @@ export async function getLatestSnapshotByDeviceId(deviceId: string): Promise<Dev
   const res = await query<DeviceStateSnapshotRow>(
     `SELECT id, device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data, created_at
      FROM device_state_snapshots
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1)
+     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
      ORDER BY created_at DESC
      LIMIT 1`,
     [deviceId]
@@ -65,7 +65,7 @@ export async function listSnapshotsByDeviceId(deviceId: string, limit = 20): Pro
   const res = await query<DeviceStateSnapshotRow>(
     `SELECT id, device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data, created_at
      FROM device_state_snapshots
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1)
+     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
      ORDER BY created_at DESC
      LIMIT $2`,
     [deviceId, limit]

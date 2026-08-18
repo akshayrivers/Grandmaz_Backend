@@ -137,6 +137,35 @@ export class DeviceController {
       });
     }
   }
+
+  /**
+   * GET /api/devices
+   * Fetch all devices linked to the authenticated caretaker user.
+   */
+  async getMyDevices(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.user) {
+      return reply.status(401).send({
+        statusCode: 401,
+        error: "Unauthorized",
+        message: "User not authenticated",
+      });
+    }
+
+    try {
+      const devices = await deviceService.getMyDevices(request.user.uid);
+      return reply.status(200).send({
+        success: true,
+        data: devices,
+      });
+    } catch (err: any) {
+      request.log.error({ err }, "Error fetching caretaker devices");
+      return reply.status(500).send({
+        statusCode: 500,
+        error: "Internal Server Error",
+        message: err.message || "Failed to fetch devices",
+      });
+    }
+  }
 }
 
 export const deviceController = new DeviceController();

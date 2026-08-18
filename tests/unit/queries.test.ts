@@ -101,6 +101,15 @@ describe("Database Query Helpers", () => {
   });
 
   it("linkCaretakerToDevice should link caretaker to device", async () => {
+    // Mock device UUID resolution
+    vi.mocked(dbClient.query).mockResolvedValueOnce({
+      rows: [{ id: "d-uuid-1" }],
+      rowCount: 1,
+      command: "SELECT",
+      oid: 0,
+      fields: [],
+    });
+
     vi.mocked(dbClient.query).mockResolvedValueOnce({
       rows: [
         {
@@ -125,6 +134,7 @@ describe("Database Query Helpers", () => {
       role: "primary",
     });
     expect(dc.role).toBe("primary");
+    expect(dbClient.query).toHaveBeenCalledTimes(2);
   });
 
   it("createTask should create remote command task", async () => {

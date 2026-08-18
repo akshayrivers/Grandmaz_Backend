@@ -19,4 +19,5 @@ export interface InvitationDetailsResponse {
   email: string;
   deviceId: string;
   expiresAt: Date;
+  accepted?: boolean | undefined;
 }

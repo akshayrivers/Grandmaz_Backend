@@ -17,4 +17,6 @@ export interface AcceptInvitationResult {
   message: string;
   user: CaretakerProfile;
   deviceId: string;
+  deviceUuid?: string | undefined;
+  deviceStringId?: string | undefined;
 }

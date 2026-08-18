@@ -15,7 +15,7 @@ export interface DeviceRow {
 export async function findDeviceById(id: string): Promise<DeviceRow | null> {
   const res = await query<DeviceRow>(
     `SELECT id, device_id, public_key, device_metadata, is_verified, status, last_active_at, created_at, updated_at
-     FROM devices WHERE id = $1`,
+     FROM devices WHERE id::text = $1 OR device_id = $1`,
     [id]
   );
   return res.rows[0] || null;
@@ -24,7 +24,7 @@ export async function findDeviceById(id: string): Promise<DeviceRow | null> {
 export async function findDeviceByStringId(deviceId: string): Promise<DeviceRow | null> {
   const res = await query<DeviceRow>(
     `SELECT id, device_id, public_key, device_metadata, is_verified, status, last_active_at, created_at, updated_at
-     FROM devices WHERE device_id = $1`,
+     FROM devices WHERE device_id = $1 OR id::text = $1`,
     [deviceId]
   );
   return res.rows[0] || null;

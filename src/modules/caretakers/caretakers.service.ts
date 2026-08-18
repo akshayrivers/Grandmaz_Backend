@@ -8,18 +8,30 @@ import { findUserByEmail } from "../../infra/database/queries/users.queries.js";
 import type { CaretakerDetails, LinkCaretakerInput, UpdateCaretakerRoleInput } from "./caretakers.types.js";
 
 export class CaretakersService {
-  async getCaretakersForDevice(deviceId: string): Promise<CaretakerDetails[]> {
+  async getCaretakersForDevice(deviceId: string): Promise<any[]> {
     const list = await getCaretakersByDeviceId(deviceId);
     return list.map((item) => ({
       id: item.id,
       caretakerId: item.caretaker_id,
+      caretaker_id: item.caretaker_id,
       deviceId: item.device_id,
+      device_id: item.device_id,
       role: item.role,
       status: item.status,
       email: item.email,
       name: item.name,
       avatarUrl: item.avatar_url,
+      avatar_url: item.avatar_url,
       createdAt: item.created_at,
+      created_at: item.created_at,
+      caretaker: {
+        id: item.caretaker_id,
+        email: item.email,
+        name: item.name,
+        avatarUrl: item.avatar_url,
+        avatar_url: item.avatar_url,
+        role: item.role,
+      },
     }));
   }
 
