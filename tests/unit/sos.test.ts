@@ -66,17 +66,6 @@ describe("SOS alerts", () => {
     });
     queueRows(
       [{
-        id: "user-1",
-        firebase_uid: "fb-1",
-        email: "v@example.com",
-        name: null,
-        avatar_url: null,
-        phone_e164: null,
-        role: "caretaker",
-        created_at: new Date(),
-        updated_at: new Date(),
-      }],
-      [{
         id: "11111111-1111-4111-8111-111111111111",
         device_id: "dev-uuid-1",
         device_string_id: "dev-1",
@@ -88,6 +77,17 @@ describe("SOS alerts", () => {
         updated_at: new Date(),
         acknowledged_by: null,
         acknowledged_at: null,
+      }],
+      [{
+        id: "user-1",
+        firebase_uid: "fb-1",
+        email: "v@example.com",
+        name: null,
+        avatar_url: null,
+        phone_e164: null,
+        role: "caretaker",
+        created_at: new Date(),
+        updated_at: new Date(),
       }],
       [{ device_uuid: "dev-uuid-1", device_id: "dev-1", role: "viewer" }]
     );
