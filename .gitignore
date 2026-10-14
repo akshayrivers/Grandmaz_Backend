@@ -5,6 +5,9 @@ node_modules/
 dist/
 coverage/
 
+# Local photo and voice-clip bytes
+data/
+
 # Environment variables
 .env
 .env.*

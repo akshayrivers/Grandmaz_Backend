@@ -3,6 +3,11 @@ import { deviceController } from "./device.controller.js";
 import { authenticateFirebaseUser } from "../../middleware/authenticate.js";
 import { PRIMARY_ONLY, WRITE_ROLES, requireDeviceAccess } from "../../middleware/authorize.js";
 import { getCaretakerConfigHandler, putCaretakerConfigHandler } from "../device-config/device-config.controller.js";
+import {
+  getCaretakerMediaHandler,
+  mediaBodyLimit,
+  postCaretakerMediaHandler,
+} from "../media/media.controller.js";
 import { PUBLIC_ROUTE_RATE_LIMIT } from "../../shared/constants/index.js";
 
 export async function deviceRoutes(fastify: FastifyInstance) {
@@ -32,5 +37,18 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     "/:deviceId/config",
     { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId", roles: WRITE_ROLES })] },
     putCaretakerConfigHandler
+  );
+  fastify.post(
+    "/:deviceId/media",
+    {
+      ...mediaBodyLimit,
+      preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId", roles: WRITE_ROLES })],
+    },
+    postCaretakerMediaHandler
+  );
+  fastify.get(
+    "/:deviceId/media/:assetId",
+    { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId" })] },
+    getCaretakerMediaHandler
   );
 }

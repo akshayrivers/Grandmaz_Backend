@@ -52,7 +52,8 @@ npm install
 psql "$DATABASE_URL" -f src/infra/database/migrations/001_initial_schema.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/002_security.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/003_device_config.sql
-# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001+002+003)
+psql "$DATABASE_URL" -f src/infra/database/migrations/004_media.sql
+# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001+002+003+004)
 npm run dev             # :3000 with hot reload
 npm run typecheck && npm test
 ./tests/integration-flow.sh   # device-side flow against a running server (needs jq + openssl)
@@ -157,6 +158,11 @@ only on the phone; there is no backend path to read or reset it.
 `city`, `lat`, `lon`); `home.inactivityReturnSec` (15–600); `reminders[]` (`id`, `label`, `hour`, `minute`, `days`,
 `enabled`); `voice` (`clips[{id, slot, assetId}]`, `ttsRate`); `apps.visible`. First write uses `If-Match: 0`.
 The response `version` is also the `ETag`. The caretaker PIN is not in this document and there is no remote PIN reset.
+
+**Media** (`MEDIA_DIR`, local disk): `POST /api/device/media` and `POST /api/devices/:deviceId/media` accept
+`{ kind: photo|audio, contentType, dataBase64, durationMs? }` and return `{ assetId, kind, contentType, byteSize, durationMs }`.
+Photos are jpeg/png/webp up to 2 MB. Audio is up to 5 MB and must declare `durationMs` of 1–30000.
+`GET` the same path with `/:assetId` returns the bytes. Device token or a linked caretaker (write role to upload).
 
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,

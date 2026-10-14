@@ -1,4 +1,4 @@
--- Full schema for a fresh database (= 001_initial_schema.sql + 002_security.sql + 003_device_config.sql).
+-- Full schema for a fresh database (= 001 + 002 + 003 + 004).
 -- Keep in sync with src/infra/database/migrations/.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -193,3 +193,22 @@ CREATE INDEX IF NOT EXISTS idx_device_challenges_device ON device_challenges(dev
 CREATE INDEX IF NOT EXISTS idx_device_tokens_device ON device_tokens(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_config_history_device
   ON device_config_history(device_id, version DESC);
+
+-- 13. Media metadata (bytes live on disk under MEDIA_DIR)
+CREATE TABLE IF NOT EXISTS media_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  kind VARCHAR(10) NOT NULL CHECK (kind IN ('photo', 'audio')),
+  content_type VARCHAR(100) NOT NULL,
+  byte_size INT NOT NULL CHECK (byte_size > 0),
+  duration_ms INT,
+  storage_key TEXT NOT NULL,
+  created_by_user UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_by_device UUID REFERENCES devices(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT media_assets_actor_check CHECK (
+    (created_by_user IS NOT NULL) <> (created_by_device IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_device ON media_assets(device_id);

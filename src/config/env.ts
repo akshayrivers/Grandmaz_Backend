@@ -38,6 +38,9 @@ const envSchema = z.object({
 
   // Rate limit for public auth/pairing routes (requests per minute per IP).
   PUBLIC_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
+
+  // Directory for photo and voice-clip bytes. Relative paths are from the process cwd.
+  MEDIA_DIR: z.string().default("data/media"),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -65,4 +68,5 @@ export const env = {
   corsOrigins: parsedEnv.data.CORS_ORIGINS.split(",")
     .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter((origin) => origin.length > 0),
+  mediaDir: parsedEnv.data.MEDIA_DIR,
 };
