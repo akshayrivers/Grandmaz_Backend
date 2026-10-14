@@ -5,7 +5,8 @@ export type AuditAction =
   | "caretaker.removed"
   | "invitation.created"
   | "invitation.revoked"
-  | "command.created";
+  | "command.created"
+  | "config.updated";
 
 export interface AuditLogRecord {
   id: string;

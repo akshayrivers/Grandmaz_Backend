@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { deviceController } from "./device.controller.js";
 import { authenticateFirebaseUser } from "../../middleware/authenticate.js";
-import { PRIMARY_ONLY, requireDeviceAccess } from "../../middleware/authorize.js";
+import { PRIMARY_ONLY, WRITE_ROLES, requireDeviceAccess } from "../../middleware/authorize.js";
+import { getCaretakerConfigHandler, putCaretakerConfigHandler } from "../device-config/device-config.controller.js";
 import { PUBLIC_ROUTE_RATE_LIMIT } from "../../shared/constants/index.js";
 
 export async function deviceRoutes(fastify: FastifyInstance) {
@@ -21,5 +22,15 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     "/:deviceId",
     { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId", roles: PRIMARY_ONLY })] },
     deviceController.renameDevice
+  );
+  fastify.get(
+    "/:deviceId/config",
+    { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId" })] },
+    getCaretakerConfigHandler
+  );
+  fastify.put(
+    "/:deviceId/config",
+    { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId", roles: WRITE_ROLES })] },
+    putCaretakerConfigHandler
   );
 }
