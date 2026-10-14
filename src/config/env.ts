@@ -41,6 +41,9 @@ const envSchema = z.object({
 
   // Directory for photo and voice-clip bytes. Relative paths are from the process cwd.
   MEDIA_DIR: z.string().default("data/media"),
+
+  // Optional. Never sent to the phone. When empty, the assistant session endpoint stays disabled.
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -174,6 +174,9 @@ Caretakers `GET /api/sos/device/:deviceId` and `POST /api/sos/:id/ack` (primary 
 `POST /api/device/reminders/events` `{ reminderId, status: taken|snoozed|missed }`.
 Caretakers read `GET /api/devices/:deviceId/reminder-events`.
 
+**Assistant:** `POST /api/device/ai/session` (device token). Returns 503 `AI_NOT_CONFIGURED`
+when `GEMINI_API_KEY` is empty. The phone does not send audio to this endpoint.
+
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,
 `command.created`, `config.updated` (version only — contact phone numbers are not copied into the audit row).
