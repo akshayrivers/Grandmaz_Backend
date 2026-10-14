@@ -239,3 +239,14 @@ CREATE TABLE IF NOT EXISTS sos_locations (
 
 CREATE INDEX IF NOT EXISTS idx_sos_events_device ON sos_events(device_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sos_locations_event ON sos_locations(sos_event_id, recorded_at DESC);
+
+-- 15. Medicine reminder log
+CREATE TABLE IF NOT EXISTS reminder_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  reminder_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('taken', 'snoozed', 'missed')),
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_events_device ON reminder_events(device_id, occurred_at DESC);

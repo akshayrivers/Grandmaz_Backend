@@ -54,6 +54,7 @@ psql "$DATABASE_URL" -f src/infra/database/migrations/002_security.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/003_device_config.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/004_media.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/005_sos.sql
+psql "$DATABASE_URL" -f src/infra/database/migrations/006_reminder_events.sql
 # (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001 through 005)
 npm run dev             # :3000 with hot reload
 npm run typecheck && npm test
@@ -168,6 +169,10 @@ Photos are jpeg/png/webp up to 2 MB. Audio is up to 5 MB and must declare `durat
 **SOS:** `POST /api/device/sos` `{ latitude?, longitude?, accuracyM? }` starts an alert (201).
 `POST /api/device/sos/:id/location` adds a fix while it is active. `POST /api/device/sos/:id/cancel` stops the alert only.
 Caretakers `GET /api/sos/device/:deviceId` and `POST /api/sos/:id/ack` (primary or caretaker). Cancelling never hangs up the phone call.
+
+**Medicine reminders** live in the device config `reminders` array. The phone reports
+`POST /api/device/reminders/events` `{ reminderId, status: taken|snoozed|missed }`.
+Caretakers read `GET /api/devices/:deviceId/reminder-events`.
 
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,

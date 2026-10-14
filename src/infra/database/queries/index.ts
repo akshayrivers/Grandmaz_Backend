@@ -9,6 +9,7 @@ export * from "./device_auth.queries.js";
 export * from "./device_config.queries.js";
 export * from "./media_assets.queries.js";
 export * from "./sos.queries.js";
+export * from "./reminder_events.queries.js";
 export * from "./device_caretakers.queries.js";
 export * from "./caretaker_invitations.queries.js";
 export * from "./help_requests.queries.js";

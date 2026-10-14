@@ -10,7 +10,8 @@ export type AuditAction =
   | "media.created"
   | "sos.started"
   | "sos.cancelled"
-  | "sos.acknowledged";
+  | "sos.acknowledged"
+  | "reminder.reported";
 
 export interface AuditLogRecord {
   id: string;

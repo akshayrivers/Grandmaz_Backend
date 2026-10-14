@@ -8,6 +8,7 @@ import {
   mediaBodyLimit,
   postCaretakerMediaHandler,
 } from "../media/media.controller.js";
+import { listRemindersHandler } from "../reminders/reminder.controller.js";
 import { PUBLIC_ROUTE_RATE_LIMIT } from "../../shared/constants/index.js";
 
 export async function deviceRoutes(fastify: FastifyInstance) {
@@ -50,5 +51,10 @@ export async function deviceRoutes(fastify: FastifyInstance) {
     "/:deviceId/media/:assetId",
     { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId" })] },
     getCaretakerMediaHandler
+  );
+  fastify.get(
+    "/:deviceId/reminder-events",
+    { preHandler: [authenticateFirebaseUser, requireDeviceAccess({ param: "deviceId" })] },
+    listRemindersHandler
   );
 }
