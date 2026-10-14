@@ -1,4 +1,5 @@
--- Enable pgcrypto extension for UUID generation if needed
+-- Full schema for a fresh database (= 001_initial_schema.sql + 002_security.sql).
+-- Keep in sync with src/infra/database/migrations/.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. Users Table (Caretakers and System Users)
@@ -8,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   name VARCHAR(255),
   avatar_url TEXT,
+  phone_e164 VARCHAR(16),
   role VARCHAR(50) NOT NULL DEFAULT 'caretaker',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -18,6 +20,11 @@ CREATE TABLE IF NOT EXISTS devices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   device_id VARCHAR(255) UNIQUE NOT NULL,
   public_key TEXT NOT NULL,
+  key_algorithm VARCHAR(20) NOT NULL DEFAULT 'RSA'
+    CONSTRAINT devices_key_algorithm_check CHECK (key_algorithm IN ('RSA', 'EC_P256')),
+  display_name VARCHAR(100),
+  fcm_token TEXT,
+  fcm_token_updated_at TIMESTAMPTZ,
   device_metadata JSONB,
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
   status VARCHAR(50) NOT NULL DEFAULT 'active',
@@ -31,22 +38,30 @@ CREATE TABLE IF NOT EXISTS device_caretakers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   caretaker_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-  role VARCHAR(50) NOT NULL DEFAULT 'primary',
+  role VARCHAR(50) NOT NULL DEFAULT 'caretaker'
+    CONSTRAINT device_caretakers_role_check CHECK (role IN ('primary', 'caretaker', 'viewer')),
   status VARCHAR(50) NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(caretaker_id, device_id)
 );
 
--- 4. Caretaker Invitations Table (Magic Link Email Invitations)
+-- 4. Caretaker Invitations Table (Magic Link + Pairing Code)
 CREATE TABLE IF NOT EXISTS caretaker_invitations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
   email VARCHAR(255) NOT NULL,
-  token VARCHAR(255) UNIQUE NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  pairing_code_hash CHAR(64),
+  code_attempts INT NOT NULL DEFAULT 0,
+  role VARCHAR(20) NOT NULL DEFAULT 'primary'
+    CONSTRAINT caretaker_invitations_role_check CHECK (role IN ('primary', 'caretaker', 'viewer')),
   expires_at TIMESTAMPTZ NOT NULL,
   created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_by_device UUID REFERENCES devices(id) ON DELETE SET NULL,
+  accepted_by UUID REFERENCES users(id) ON DELETE SET NULL,
   accepted_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -76,6 +91,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   status VARCHAR(50) NOT NULL DEFAULT 'pending',
   result JSONB,
   scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '1 hour',
+  delivered_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -106,17 +123,43 @@ CREATE TABLE IF NOT EXISTS device_state_snapshots (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 9. Device Challenges (SHA-256 hash only; single use, 5-minute TTL)
+CREATE TABLE IF NOT EXISTS device_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  challenge_hash CHAR(64) UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 10. Device Tokens (SHA-256 hash only)
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  token_hash CHAR(64) UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_caretakers_caretaker ON device_caretakers(caretaker_id);
 CREATE INDEX IF NOT EXISTS idx_device_caretakers_device ON device_caretakers(device_id);
-CREATE INDEX IF NOT EXISTS idx_invitations_token ON caretaker_invitations(token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_caretakers_one_primary
+  ON device_caretakers(device_id) WHERE role = 'primary' AND status = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invitations_token_hash ON caretaker_invitations(token_hash);
 CREATE INDEX IF NOT EXISTS idx_invitations_device ON caretaker_invitations(device_id);
 CREATE INDEX IF NOT EXISTS idx_help_requests_device ON help_requests(device_id);
 CREATE INDEX IF NOT EXISTS idx_help_requests_status ON help_requests(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_device ON tasks(device_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_device_status ON tasks(device_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_device ON audit_logs(device_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_device ON device_state_snapshots(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_challenges_device ON device_challenges(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_device ON device_tokens(device_id);
