@@ -5,19 +5,18 @@ export interface DeviceStateSnapshotRecord {
   batteryStatus: string | null;
   wifiSsid: string | null;
   storageFreeMb: number | null;
-  installedApps: any;
-  settings: any;
-  snapshotData: any;
+  installedApps: unknown;
+  settings: unknown;
+  snapshotData: unknown;
   createdAt: Date;
 }
 
 export interface PostSnapshotInput {
-  deviceId: string;
   batteryLevel?: number | undefined;
   batteryStatus?: string | undefined;
   wifiSsid?: string | undefined;
   storageFreeMb?: number | undefined;
-  installedApps?: any;
-  settings?: any;
-  snapshotData?: any;
+  installedApps?: unknown;
+  settings?: unknown;
+  snapshotData?: unknown;
 }

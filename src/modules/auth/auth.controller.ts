@@ -1,87 +1,49 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { authService } from "./auth.service.js";
-import { VerifyTokenSchema, AcceptInvitationSchema } from "./auth.schemas.js";
+import { VerifyTokenSchema } from "./auth.schemas.js";
+import { AcceptInvitationSchema } from "../invitations/invitations.schemas.js";
+import { invitationsService } from "../invitations/invitations.service.js";
+import { usersService, toUserProfile } from "../users/users.service.js";
+import { verifyFirebaseIdToken } from "../../infra/firebase/auth.js";
+import { AppError, parseOrThrow } from "../../shared/errors/app-error.js";
+import { extractBearerToken } from "../../middleware/authenticate.js";
 
 export class AuthController {
   /**
    * POST /api/auth/verify
-   * Verifies Firebase token passed in body or Auth header and syncs user to Postgres.
+   * Verifies the Firebase token (Authorization header, or `{ idToken }` body) and syncs the user.
+   * Does NOT link any devices.
    */
   async verifyToken(request: FastifyRequest, reply: FastifyReply) {
-    let firebaseUser = request.user;
+    const idToken = extractBearerToken(request) ?? parseOrThrow(VerifyTokenSchema, request.body).idToken;
 
-    if (!firebaseUser) {
-      const parseResult = VerifyTokenSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        return reply.status(400).send({
-          statusCode: 400,
-          error: "Bad Request",
-          message: parseResult.error.issues[0]?.message || "Invalid request payload",
-        });
-      }
-      const { idToken } = parseResult.data;
-      const { verifyFirebaseIdToken } = await import("../../infra/firebase/auth.js");
+    let firebaseUser;
+    try {
       firebaseUser = await verifyFirebaseIdToken(idToken);
+    } catch {
+      throw new AppError(401, "UNAUTHENTICATED", "Invalid or expired authentication token");
     }
 
-    const userProfile = await authService.verifyAndSyncUser(firebaseUser);
-    return reply.status(200).send({
-      success: true,
-      data: userProfile,
-    });
+    const user = await usersService.syncFromFirebase(firebaseUser);
+    return reply.send({ success: true, data: toUserProfile(user, firebaseUser.emailVerified === true) });
   }
 
-  /**
-   * GET /api/auth/me
-   * Returns current authenticated caretaker profile.
-   */
+  /** GET /api/auth/me */
   async getCurrentUser(request: FastifyRequest, reply: FastifyReply) {
     if (!request.user) {
-      return reply.status(401).send({
-        statusCode: 401,
-        error: "Unauthorized",
-        message: "User not authenticated",
-      });
+      throw new AppError(401, "UNAUTHENTICATED", "User not authenticated");
     }
-
-    const userProfile = await authService.verifyAndSyncUser(request.user);
-    return reply.status(200).send({
-      success: true,
-      data: userProfile,
-    });
+    const data = await usersService.getProfile(request.user);
+    return reply.send({ success: true, data });
   }
 
-  /**
-   * POST /api/auth/accept-invitation
-   * Caretaker magic link acceptance endpoint.
-   */
+  /** POST /api/auth/accept-invitation — Firebase-authenticated; requires the pairing code. */
   async acceptInvitation(request: FastifyRequest, reply: FastifyReply) {
-    const parseResult = AcceptInvitationSchema.safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: parseResult.error.issues[0]?.message || "Invalid request payload",
-      });
+    if (!request.user) {
+      throw new AppError(401, "UNAUTHENTICATED", "User not authenticated");
     }
-
-    const { idToken, invitationToken } = parseResult.data;
-
-    try {
-      const result = await authService.acceptInvitation(idToken, invitationToken);
-      return reply.status(200).send({
-        success: true,
-        ...result,
-      });
-    } catch (err: any) {
-      request.log.error({ err }, "Error accepting caretaker invitation");
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: err.message || "Failed to accept invitation",
-      });
-    }
+    const { invitationToken, pairingCode } = parseOrThrow(AcceptInvitationSchema, request.body);
+    const data = await invitationsService.accept(request.user, invitationToken, pairingCode);
+    return reply.send({ success: true, data });
   }
 }
 

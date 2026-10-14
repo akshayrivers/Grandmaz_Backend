@@ -1,15 +1,15 @@
 export interface UserProfileResponse {
   id: string;
-  firebaseUid: string;
   email: string;
   name: string | null;
   avatarUrl: string | null;
-  role: string;
+  phoneE164: string | null;
+  emailVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface UpdateUserProfileInput {
   name?: string | undefined;
-  avatarUrl?: string | undefined;
+  phoneE164?: string | null | undefined;
 }

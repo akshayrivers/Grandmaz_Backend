@@ -1,3 +1,5 @@
+export type HelpRequestType = "general" | "sos" | "medical" | "tech_support";
+
 export interface HelpRequestRecord {
   id: string;
   deviceId: string;
@@ -12,10 +14,9 @@ export interface HelpRequestRecord {
 }
 
 export interface CreateHelpRequestInput {
-  deviceId: string;
   title: string;
   description?: string | undefined;
-  type?: string | undefined;
+  type: HelpRequestType;
 }
 
 export interface ResolveHelpRequestInput {

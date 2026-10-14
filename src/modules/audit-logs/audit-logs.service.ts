@@ -1,40 +1,30 @@
 import {
   createAuditLog,
-  listAuditLogsByDeviceId,
-  listAuditLogsByUserId,
+  listAuditLogsByDeviceUuid,
   type AuditLogRow,
 } from "../../infra/database/queries/audit_logs.queries.js";
-import type { AuditLogRecord, CreateAuditLogInput } from "./audit-logs.types.js";
+import type { QueryFn } from "../../infra/database/client.js";
+import type { AuditAction, AuditLogRecord, CreateAuditLogInput } from "./audit-logs.types.js";
 
 export class AuditLogsService {
-  private mapRowToRecord(row: AuditLogRow): any {
+  private mapRowToRecord(row: AuditLogRow): AuditLogRecord {
     return {
       id: row.id,
-      deviceId: row.device_id,
-      device_id: row.device_id,
+      deviceId: row.device_string_id,
       userId: row.user_id,
-      user_id: row.user_id,
       action: row.action,
       details: row.details,
-      ipAddress: row.ip_address,
-      ip_address: row.ip_address,
       createdAt: row.created_at,
-      created_at: row.created_at,
     };
   }
 
-  async log(input: CreateAuditLogInput): Promise<AuditLogRecord> {
-    const row = await createAuditLog(input);
-    return this.mapRowToRecord(row);
+  /** Writes an audit entry; pass `q` to write inside the caller's transaction. */
+  async record(action: AuditAction, input: CreateAuditLogInput, q?: QueryFn): Promise<void> {
+    await createAuditLog({ action, ...input }, q);
   }
 
-  async listForDevice(deviceId: string): Promise<AuditLogRecord[]> {
-    const rows = await listAuditLogsByDeviceId(deviceId);
-    return rows.map((r) => this.mapRowToRecord(r));
-  }
-
-  async listForUser(userId: string): Promise<AuditLogRecord[]> {
-    const rows = await listAuditLogsByUserId(userId);
+  async listForDevice(deviceUuid: string): Promise<AuditLogRecord[]> {
+    const rows = await listAuditLogsByDeviceUuid(deviceUuid);
     return rows.map((r) => this.mapRowToRecord(r));
   }
 }

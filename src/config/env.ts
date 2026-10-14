@@ -29,8 +29,15 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().default("Grandma's Launcher <noreply@grandmaz.app>"),
 
-  // Caretaker PWA Domain / Magic Link Base URL
-  CARETAKER_WEB_URL: z.string().default("http://localhost:5173"),
+  // Caretaker web app base URL used in invitation links. CARETAKER_WEB_URL is the legacy name.
+  APP_BASE_URL: z.string().url().optional(),
+  CARETAKER_WEB_URL: z.string().url().optional(),
+
+  // Comma-separated list of allowed browser origins (caretaker web app).
+  CORS_ORIGINS: z.string().default("http://localhost:5173"),
+
+  // Rate limit for public auth/pairing routes (requests per minute per IP).
+  PUBLIC_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(20),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -38,8 +45,24 @@ export type Env = z.infer<typeof envSchema>;
 const parsedEnv = envSchema.safeParse(process.env);
 
 if (!parsedEnv.success) {
-  console.error("❌ Invalid environment variables:", parsedEnv.error.flatten().fieldErrors);
+  console.error("❌ Invalid environment variables:", z.flattenError(parsedEnv.error).fieldErrors);
   throw new Error("Invalid environment variables");
 }
 
-export const env = parsedEnv.data;
+const appBaseUrl = (
+  parsedEnv.data.APP_BASE_URL ??
+  parsedEnv.data.CARETAKER_WEB_URL ??
+  "http://localhost:5173"
+).replace(/\/+$/, "");
+
+if (parsedEnv.data.NODE_ENV === "production" && !parsedEnv.data.APP_BASE_URL) {
+  throw new Error("APP_BASE_URL is required in production");
+}
+
+export const env = {
+  ...parsedEnv.data,
+  appBaseUrl,
+  corsOrigins: parsedEnv.data.CORS_ORIGINS.split(",")
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
+    .filter((origin) => origin.length > 0),
+};

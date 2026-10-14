@@ -1,30 +1,23 @@
-export interface TaskRecord {
+export interface CommandRecord {
   id: string;
   deviceId: string;
+  type: string;
+  payload: Record<string, unknown>;
+  status: string;
+  result: unknown;
   createdBy: string | null;
-  title: string;
-  description: string | null;
-  command: string;
-  payload: any;
-  status: string;
-  result: any;
-  scheduledAt: Date;
-  completedAt: Date | null;
   createdAt: Date;
-  updatedAt: Date;
+  deliveredAt: Date | null;
+  completedAt: Date | null;
+  expiresAt: Date;
 }
 
-export interface CreateTaskInput {
-  deviceId: string;
-  title: string;
-  command: string;
-  description?: string | undefined;
-  payload?: any;
-  createdBy?: string | undefined;
-  scheduledAt?: Date | undefined;
-}
-
-export interface UpdateTaskStatusInput {
+/** Shape the launcher receives from GET /api/device/commands. */
+export interface DeviceCommand {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
   status: string;
-  result?: any;
+  createdAt: Date;
+  expiresAt: Date;
 }

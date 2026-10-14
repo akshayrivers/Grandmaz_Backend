@@ -1,249 +1,276 @@
-import { randomBytes, verify } from "crypto";
-import { query } from "../../infra/database/client.js";
+import { createPublicKey, verify, type KeyObject } from "crypto";
+import {
+  findDeviceByIdentifier,
+  findDeviceByStringId,
+  insertDevice,
+  listDevicesForCaretaker,
+  markDeviceVerified,
+  updateDeviceDisplayName,
+  updateDeviceFcmToken,
+  updateDeviceMetadata,
+  type CaretakerDeviceRow,
+  type DeviceRow,
+  type KeyAlgorithm,
+} from "../../infra/database/queries/devices.queries.js";
+import {
+  consumeDeviceChallenge,
+  findDeviceChallenge,
+  insertDeviceChallenge,
+  insertDeviceToken,
+  pruneDeviceChallenges,
+} from "../../infra/database/queries/device_auth.queries.js";
+import { getCaretakersByDeviceUuid } from "../../infra/database/queries/device_caretakers.queries.js";
+import { AppError } from "../../shared/errors/app-error.js";
+import { randomHex, randomToken, sha256Hex } from "../../shared/utils/crypto.js";
+import { DEVICE_TOKEN_PREFIX } from "../../middleware/authenticate-device.js";
 import type {
-  RegisterDeviceInput,
-  DeviceRecord,
   CaretakerDeviceRecord,
+  DeviceSelfRecord,
+  IssuedChallenge,
+  RegisterDeviceInput,
+  RegisterDeviceResult,
   VerifyChallengeInput,
   VerifyChallengeResult,
 } from "./device.types.js";
 
+export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+export const DEVICE_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const CHALLENGE_REGEX = /^[0-9a-f]{64}$/;
+
 /**
- * Normalizes any public key string (handles escaped newlines, raw base64, CRLF) into standard PEM SPKI format.
+ * Parses a PEM SPKI or bare base64 DER SPKI public key, checks it matches `algorithm`
+ * (EC must be P-256, RSA ≥ 2048 bits) and returns it with its canonical PEM form.
  */
-function normalizePublicKey(key: string): string {
-  let cleaned = key.trim().replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
-  if (!cleaned.includes("-----BEGIN PUBLIC KEY-----")) {
-    const raw = cleaned.replace(/[^A-Za-z0-9+/=]/g, "");
-    cleaned = `-----BEGIN PUBLIC KEY-----\n${raw}\n-----END PUBLIC KEY-----`;
+export function parsePublicKey(key: string, algorithm: KeyAlgorithm): { keyObject: KeyObject; pem: string } {
+  let keyObject: KeyObject;
+  try {
+    const cleaned = key.trim().replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\r\n/g, "\n");
+    if (cleaned.includes("-----BEGIN PUBLIC KEY-----")) {
+      keyObject = createPublicKey({ key: cleaned, format: "pem" });
+    } else {
+      const der = Buffer.from(cleaned.replace(/[^A-Za-z0-9+/=]/g, ""), "base64");
+      keyObject = createPublicKey({ key: der, format: "der", type: "spki" });
+    }
+  } catch {
+    throw new AppError(400, "INVALID_PUBLIC_KEY", "Public key could not be parsed (expected SPKI PEM or base64 DER)");
   }
-  return cleaned;
+
+  const details = keyObject.asymmetricKeyDetails;
+  if (algorithm === "EC_P256") {
+    if (keyObject.asymmetricKeyType !== "ec" || details?.namedCurve !== "prime256v1") {
+      throw new AppError(400, "INVALID_PUBLIC_KEY", "EC_P256 requires an EC public key on curve P-256");
+    }
+  } else if (keyObject.asymmetricKeyType !== "rsa" || (details?.modulusLength ?? 0) < 2048) {
+    throw new AppError(400, "INVALID_PUBLIC_KEY", "RSA requires a public key of at least 2048 bits");
+  }
+
+  return { keyObject, pem: keyObject.export({ type: "spki", format: "pem" }).toString() };
+}
+
+/**
+ * Verifies a base64 signature over the UTF-8 bytes of `message`.
+ * EC_P256 → SHA256withECDSA (DER signature), RSA → SHA256withRSA (PKCS#1 v1.5).
+ */
+export function verifyDeviceSignature(
+  publicKeyPem: string,
+  algorithm: KeyAlgorithm,
+  message: string,
+  signatureBase64: string
+): boolean {
+  try {
+    const { keyObject } = parsePublicKey(publicKeyPem, algorithm);
+    const signature = Buffer.from(signatureBase64, "base64");
+    if (signature.length === 0) {
+      return false;
+    }
+    const data = Buffer.from(message, "utf-8");
+    if (algorithm === "EC_P256") {
+      return verify("sha256", data, { key: keyObject, dsaEncoding: "der" }, signature);
+    }
+    return verify("sha256", data, keyObject, signature);
+  } catch {
+    return false;
+  }
+}
+
+export function deviceDisplayName(row: Pick<DeviceRow, "display_name" | "device_metadata" | "device_id">): string {
+  if (row.display_name) {
+    return row.display_name;
+  }
+  const meta = row.device_metadata as { model?: unknown; manufacturer?: unknown } | null;
+  if (meta && typeof meta.model === "string" && meta.model.length > 0) {
+    return typeof meta.manufacturer === "string" && meta.manufacturer.length > 0
+      ? `${meta.manufacturer} ${meta.model}`
+      : meta.model;
+  }
+  return "Grandma's phone";
+}
+
+function toCaretakerDeviceRecord(row: CaretakerDeviceRow): CaretakerDeviceRecord {
+  return {
+    id: row.id,
+    deviceId: row.device_id,
+    displayName: deviceDisplayName(row),
+    isVerified: row.is_verified,
+    status: row.status,
+    lastActiveAt: row.last_active_at ?? row.snapshot_created_at ?? null,
+    batteryLevel: row.battery_level ?? null,
+    batteryStatus: row.battery_status ?? null,
+    wifiSsid: row.wifi_ssid ?? null,
+    role: row.caretaker_role as CaretakerDeviceRecord["role"],
+    deviceMetadata: row.device_metadata ?? null,
+    createdAt: row.created_at,
+  };
 }
 
 export class DeviceService {
   /**
-   * Registers a new device or updates an existing device's public key and metadata.
+   * Registers a new device. An existing deviceId is never re-keyed: the same key just
+   * refreshes metadata; a different key is rejected with DEVICE_KEY_MISMATCH.
    */
-  async registerDevice({
-    deviceId,
-    publicKey,
-    deviceMetadata,
-  }: RegisterDeviceInput): Promise<{ device: DeviceRecord; challenge: string }> {
-    const normalizedKey = normalizePublicKey(publicKey);
-    const res = await query(
-      `INSERT INTO devices (device_id, public_key, device_metadata, is_verified, status, last_active_at)
-       VALUES ($1, $2, $3, false, 'active', NOW())
-       ON CONFLICT (device_id)
-       DO UPDATE SET
-         public_key = EXCLUDED.public_key,
-         device_metadata = COALESCE(EXCLUDED.device_metadata, devices.device_metadata),
-         last_active_at = NOW(),
-         updated_at = NOW()
-       RETURNING id, device_id, public_key, device_metadata, is_verified, status, last_active_at, created_at, updated_at`,
-      [deviceId, normalizedKey, deviceMetadata ? JSON.stringify(deviceMetadata) : null]
-    );
+  async registerDevice(input: RegisterDeviceInput): Promise<RegisterDeviceResult> {
+    const { pem } = parsePublicKey(input.publicKey, input.keyAlgorithm);
 
-    const row = res.rows[0];
-    const device: DeviceRecord = {
-      id: row.id,
-      deviceId: row.device_id,
-      publicKey: row.public_key,
-      deviceMetadata: row.device_metadata,
-      isVerified: row.is_verified,
-      status: row.status,
-      lastActiveAt: row.last_active_at,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-
-    const challenge = await this.createChallenge(deviceId);
-
-    return { device, challenge };
-  }
-
-  /**
-   * Generates a cryptographic challenge string for a registered device.
-   */
-  async createChallenge(deviceId: string): Promise<string> {
-    const deviceRes = await query(
-      `SELECT id FROM devices WHERE device_id = $1 OR id::text = $1`,
-      [deviceId]
-    );
-
-    if (deviceRes.rows.length === 0) {
-      throw new Error("Device not found. Please register the device first.");
-    }
-
-    // Generate random 32-byte hex challenge
-    const challenge = randomBytes(32).toString("hex");
-    return challenge;
-  }
-
-  /**
-   * Verifies the digital signature submitted by the launcher using the device's public key.
-   */
-  async verifySignature({
-    deviceId,
-    challenge,
-    signature,
-  }: VerifyChallengeInput): Promise<VerifyChallengeResult> {
-    const deviceRes = await query(
-      `SELECT id, device_id, public_key, is_verified FROM devices WHERE device_id = $1 OR id::text = $1`,
-      [deviceId]
-    );
-
-    if (deviceRes.rows.length === 0) {
-      throw new Error("Device not found");
-    }
-
-    const device = deviceRes.rows[0];
-    const normalizedKey = normalizePublicKey(device.public_key);
-    let isValidSignature = false;
-
-    try {
-      const signatureBuffer = Buffer.from(signature, "base64");
-      const dataBuffer = Buffer.from(challenge, "utf-8");
-
-      // Verify signature against public key
-      isValidSignature = verify(
-        "sha256",
-        dataBuffer,
-        normalizedKey,
-        signatureBuffer
-      );
-    } catch (err: any) {
-      // Fallback check if signature was sent in hex format instead of base64
-      try {
-        const signatureHexBuffer = Buffer.from(signature, "hex");
-        const dataBuffer = Buffer.from(challenge, "utf-8");
-        isValidSignature = verify(
-          "sha256",
-          dataBuffer,
-          normalizedKey,
-          signatureHexBuffer
-        );
-      } catch {
-        isValidSignature = false;
-      }
-    }
-
-    if (!isValidSignature) {
-      return {
-        verified: false,
-        is_verified: false,
-        isVerified: false,
-        message: "Invalid signature challenge verification failed",
-        deviceId,
-      };
-    }
-
-    // Update device status to verified in Postgres
-    await query(
-      `UPDATE devices SET is_verified = true, last_active_at = NOW(), updated_at = NOW() WHERE device_id = $1 OR id::text = $1`,
-      [deviceId]
-    );
-
-    return {
-      verified: true,
-      is_verified: true,
-      isVerified: true,
-      message: "Device challenge successfully verified and device marked as verified",
-      deviceId,
-    };
-  }
-
-  /**
-   * Fetches all devices linked to the authenticated caretaker user with their latest state snapshots.
-   */
-  async getMyDevices(firebaseUid: string): Promise<CaretakerDeviceRecord[]> {
-    const userRes = await query(
-      `SELECT id, email FROM users WHERE firebase_uid = $1`,
-      [firebaseUid]
-    );
-    if (userRes.rows.length === 0) {
-      return [];
-    }
-    const userId = userRes.rows[0].id;
-
-    // Self-heal: if the user still has any pending invitations for their
-    // verified email, auto-accept them so the device shows up on the dashboard
-    // even when the caretaker skipped the invitation page.
-    try {
-      const { acceptPendingInvitationsForEmail } = await import("../auth/auth.service.js");
-      await acceptPendingInvitationsForEmail(userId, userRes.rows[0].email);
-    } catch (autoLinkErr) {
-      console.warn("⚠️ Warning during dashboard auto-link of pending invitations:", autoLinkErr);
-    }
-
-    const res = await query(
-      `SELECT d.id, d.device_id, d.public_key, d.device_metadata, d.is_verified, d.status,
-              d.last_active_at, d.created_at, d.updated_at,
-              dc.role as caretaker_role,
-              s.battery_level, s.battery_status, s.wifi_ssid, s.created_at as snapshot_created_at
-       FROM devices d
-       INNER JOIN device_caretakers dc ON dc.device_id = d.id
-       LEFT JOIN LATERAL (
-         SELECT battery_level, battery_status, wifi_ssid, created_at
-         FROM device_state_snapshots
-         WHERE device_id = d.id
-         ORDER BY created_at DESC
-         LIMIT 1
-       ) s ON true
-       WHERE dc.caretaker_id = $1 AND dc.status = 'active'
-       ORDER BY d.created_at DESC`,
-      [userId]
-    );
-
-    return res.rows.map((row) => {
-      const meta = row.device_metadata;
-      const model = meta?.model ? `${meta.manufacturer ? meta.manufacturer + " " : ""}${meta.model}` : row.device_id;
-
-      return {
-        id: row.id,
-        deviceId: row.device_id,
-        deviceUuid: row.id,
-        displayName: model,
-        publicKey: row.public_key,
-        deviceMetadata: row.device_metadata,
-        isVerified: row.is_verified,
-        status: row.status,
-        lastActiveAt: row.last_active_at || row.snapshot_created_at || null,
-        batteryLevel: row.battery_level ?? null,
-        batteryStatus: row.battery_status ?? null,
-        wifiSsid: row.wifi_ssid ?? null,
-        caretakerRole: row.caretaker_role || "primary",
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
+    let created = true;
+    let device = await insertDevice({
+      deviceId: input.deviceId,
+      publicKey: pem,
+      keyAlgorithm: input.keyAlgorithm,
+      deviceMetadata: input.deviceMetadata,
     });
+
+    if (!device) {
+      created = false;
+      const existing = await findDeviceByStringId(input.deviceId);
+      if (!existing) {
+        throw new Error("Device insert conflicted but no row was found");
+      }
+      let existingPem: string | null = null;
+      try {
+        existingPem = parsePublicKey(existing.public_key, existing.key_algorithm).pem;
+      } catch {
+        existingPem = null;
+      }
+      if (existing.key_algorithm !== input.keyAlgorithm || existingPem !== pem) {
+        throw new AppError(
+          409,
+          "DEVICE_KEY_MISMATCH",
+          "This deviceId is registered with a different key. Generate a new deviceId and pair again."
+        );
+      }
+      device = (await updateDeviceMetadata(existing.id, input.deviceMetadata)) ?? existing;
+    }
+
+    const challenge = await this.issueChallenge(device.id);
+    return {
+      created,
+      device: {
+        deviceId: device.device_id,
+        isVerified: device.is_verified,
+        keyAlgorithm: device.key_algorithm,
+        challenge: challenge.challenge,
+        challengeExpiresAt: challenge.expiresAt,
+      },
+    };
+  }
+
+  private async issueChallenge(deviceUuid: string): Promise<IssuedChallenge> {
+    await pruneDeviceChallenges(deviceUuid);
+    const challenge = randomHex(32);
+    const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
+    await insertDeviceChallenge({ deviceUuid, challengeHash: sha256Hex(challenge), expiresAt });
+    return { challenge, expiresAt };
+  }
+
+  async createChallenge(deviceId: string): Promise<IssuedChallenge> {
+    const device = await findDeviceByStringId(deviceId);
+    if (!device) {
+      throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found. Register the device first.");
+    }
+    return this.issueChallenge(device.id);
   }
 
   /**
-   * Fetches a device record by deviceId or id UUID.
+   * Verifies the signed challenge against the stored key and stored challenge (single use,
+   * 5-minute TTL) and issues a 30-day device token. Only the token's SHA-256 is stored.
    */
-  async getDevice(deviceId: string): Promise<DeviceRecord> {
-    const res = await query(
-      `SELECT id, device_id, public_key, device_metadata, is_verified, status, last_active_at, created_at, updated_at
-       FROM devices
-       WHERE device_id = $1 OR id::text = $1`,
-      [deviceId]
-    );
-
-    if (res.rows.length === 0) {
-      throw new Error("Device not found");
+  async verifySignature({ deviceId, challenge, signature }: VerifyChallengeInput): Promise<VerifyChallengeResult> {
+    const device = await findDeviceByStringId(deviceId);
+    if (!device) {
+      throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found. Register the device first.");
+    }
+    if (!CHALLENGE_REGEX.test(challenge)) {
+      throw new AppError(401, "CHALLENGE_INVALID", "Unknown challenge");
     }
 
-    const row = res.rows[0];
+    const stored = await findDeviceChallenge(device.id, sha256Hex(challenge));
+    if (!stored) {
+      throw new AppError(401, "CHALLENGE_INVALID", "Unknown challenge");
+    }
+    if (stored.used_at) {
+      throw new AppError(401, "CHALLENGE_USED", "Challenge was already used");
+    }
+    if (new Date(stored.expires_at) <= new Date()) {
+      throw new AppError(401, "CHALLENGE_EXPIRED", "Challenge has expired");
+    }
+
+    if (!verifyDeviceSignature(device.public_key, device.key_algorithm, challenge, signature)) {
+      throw new AppError(401, "INVALID_SIGNATURE", "Signature verification failed");
+    }
+
+    // Atomic single-use: a concurrent verify of the same challenge loses here.
+    if (!(await consumeDeviceChallenge(stored.id))) {
+      throw new AppError(401, "CHALLENGE_USED", "Challenge was already used");
+    }
+
+    await markDeviceVerified(device.id);
+
+    const deviceToken = randomToken(32, DEVICE_TOKEN_PREFIX);
+    const expiresAt = new Date(Date.now() + DEVICE_TOKEN_TTL_MS);
+    await insertDeviceToken({ deviceUuid: device.id, tokenHash: sha256Hex(deviceToken), expiresAt });
+
+    return { deviceId: device.device_id, deviceToken, expiresAt };
+  }
+
+  async getMyDevices(caretakerId: string): Promise<CaretakerDeviceRecord[]> {
+    const rows = await listDevicesForCaretaker(caretakerId);
+    return rows.map(toCaretakerDeviceRecord);
+  }
+
+  async getDeviceForCaretaker(caretakerId: string, deviceUuid: string): Promise<CaretakerDeviceRecord> {
+    const [row] = await listDevicesForCaretaker(caretakerId, deviceUuid);
+    if (!row) {
+      throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found");
+    }
+    return toCaretakerDeviceRecord(row);
+  }
+
+  async renameDevice(caretakerId: string, deviceUuid: string, displayName: string): Promise<CaretakerDeviceRecord> {
+    await updateDeviceDisplayName(deviceUuid, displayName);
+    return this.getDeviceForCaretaker(caretakerId, deviceUuid);
+  }
+
+  async setPushToken(deviceUuid: string, fcmToken: string): Promise<void> {
+    await updateDeviceFcmToken(deviceUuid, fcmToken);
+  }
+
+  /** What the launcher may know about itself: caretaker names, roles and phone numbers for SOS. */
+  async getSelf(deviceUuid: string): Promise<DeviceSelfRecord> {
+    const device = await findDeviceByIdentifier(deviceUuid);
+    if (!device) {
+      throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found");
+    }
+    const caretakers = await getCaretakersByDeviceUuid(device.id);
     return {
-      id: row.id,
-      deviceId: row.device_id,
-      publicKey: row.public_key,
-      deviceMetadata: row.device_metadata,
-      isVerified: row.is_verified,
-      status: row.status,
-      lastActiveAt: row.last_active_at,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      deviceId: device.device_id,
+      isVerified: device.is_verified,
+      displayName: device.display_name,
+      caretakers: caretakers.map((c) => ({
+        caretakerId: c.caretaker_id,
+        name: c.name,
+        role: c.role,
+        phoneE164: c.phone_e164,
+      })),
     };
   }
 }

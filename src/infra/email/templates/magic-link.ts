@@ -3,12 +3,23 @@ export interface MagicLinkEmailProps {
   deviceName?: string | undefined;
 }
 
-export function renderMagicLinkEmail({ inviteUrl, deviceName }: MagicLinkEmailProps): {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function renderMagicLinkEmail({ inviteUrl, deviceName: rawDeviceName }: MagicLinkEmailProps): {
   subject: string;
   html: string;
   text: string;
 } {
-  const subject = `Invitation to manage Grandma's Launcher ${deviceName ? `(${deviceName})` : ""}`;
+  const deviceName = rawDeviceName ? escapeHtml(rawDeviceName) : undefined;
+  const safeUrl = escapeHtml(inviteUrl);
+  const subject = `Invitation to manage Grandma's Launcher ${rawDeviceName ? `(${rawDeviceName})` : ""}`;
 
   const html = `
     <!DOCTYPE html>
@@ -28,10 +39,12 @@ export function renderMagicLinkEmail({ inviteUrl, deviceName }: MagicLinkEmailPr
         <div class="container">
           <h1>Caretaker Invitation</h1>
           <p>You have been invited to become a Caretaker for <strong>${deviceName || "Grandma's Device"}</strong> on Grandma's Launcher.</p>
-          <p>Click the button below to accept your invitation and sign in to the Caretaker Dashboard:</p>
-          <p><a href="${inviteUrl}" class="btn" style="color: #ffffff;">Accept Invitation & Sign In</a></p>
+          <p>Click the button below to accept your invitation and sign in to the Caretaker Dashboard.
+          You will then be asked for the <strong>6-digit pairing code</strong> shown on Grandma's phone
+          (or given to you by the family member who invited you).</p>
+          <p><a href="${safeUrl}" class="btn" style="color: #ffffff;">Accept Invitation & Sign In</a></p>
           <p>Or copy and paste this link into your browser:</p>
-          <p style="word-break: break-all; color: #3182ce;"><a href="${inviteUrl}">${inviteUrl}</a></p>
+          <p style="word-break: break-all; color: #3182ce;"><a href="${safeUrl}">${safeUrl}</a></p>
           <div class="footer">
             <p>If you were not expecting this invitation, you can safely ignore this email.</p>
           </div>
@@ -40,7 +53,7 @@ export function renderMagicLinkEmail({ inviteUrl, deviceName }: MagicLinkEmailPr
     </html>
   `;
 
-  const text = `You have been invited to become a Caretaker for ${deviceName || "Grandma's Device"}.\n\nClick here to accept: ${inviteUrl}`;
+  const text = `You have been invited to become a Caretaker for ${rawDeviceName || "Grandma's Device"}.\n\nClick here to accept: ${inviteUrl}\n\nYou will need the 6-digit pairing code shown on Grandma's phone.`;
 
   return { subject, html, text };
 }
