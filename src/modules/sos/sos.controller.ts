@@ -8,7 +8,11 @@ import { sosService } from "./sos.service.js";
 export async function startSosHandler(request: FastifyRequest, reply: FastifyReply) {
   const device = getAuthenticatedDevice(request);
   const body = parseOrThrow(startSosSchema, request.body ?? {});
-  const data = await sosService.start(device.uuid, body);
+  const data = await sosService.start(device.uuid, {
+    latitude: body.latitude ?? null,
+    longitude: body.longitude ?? null,
+    accuracyM: body.accuracyM ?? null,
+  });
   return reply.status(201).send({ success: true, data });
 }
 
@@ -16,7 +20,11 @@ export async function postSosLocationHandler(request: FastifyRequest, reply: Fas
   const device = getAuthenticatedDevice(request);
   const { id } = parseOrThrow(sosEventParamsSchema, request.params);
   const body = parseOrThrow(sosLocationSchema, request.body);
-  const data = await sosService.addLocation(device.uuid, id, body);
+  const data = await sosService.addLocation(device.uuid, id, {
+    latitude: body.latitude,
+    longitude: body.longitude,
+    accuracyM: body.accuracyM ?? null,
+  });
   return reply.send({ success: true, data });
 }
 
