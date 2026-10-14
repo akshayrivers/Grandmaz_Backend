@@ -6,10 +6,13 @@ import { E164_REGEX } from "../../shared/utils/crypto.js";
  * Versioned device document. The caretaker PIN is intentionally absent: it stays on the phone
  * and must not be added to this schema, snapshots, or any remote command.
  */
+const assetId = z.string().trim().min(1).max(64).nullable();
+
 const phoneSchema = z
   .object({
-    e164: z.string().trim().regex(E164_REGEX, "Phone number must be in E.164 format, e.g. +919876543210"),
+    id: z.string().trim().min(1).max(64),
     label: z.string().trim().max(40),
+    e164: z.string().trim().regex(E164_REGEX, "Phone number must be in E.164 format, e.g. +919876543210"),
     whatsapp: z.boolean(),
     isDefault: z.boolean(),
   })
@@ -22,12 +25,27 @@ const contactSchema = z
     phones: z.array(phoneSchema).max(5),
     order: z.number().int().nonnegative(),
     pinned: z.boolean(),
+    photoAssetId: assetId,
+    nameClipId: assetId,
   })
   .strict();
 
-const weatherSchema = z
+const reminderSchema = z
   .object({
-    locationName: z.string().trim().min(1).max(80).nullable(),
+    id: z.string().trim().min(1).max(64),
+    label: z.string().trim().min(1).max(80),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+    days: z.array(z.number().int().min(0).max(6)).max(7),
+    enabled: z.boolean(),
+  })
+  .strict();
+
+const voiceClipSchema = z
+  .object({
+    id: z.string().trim().min(1).max(64),
+    slot: z.string().trim().min(1).max(64),
+    assetId: assetId,
   })
   .strict();
 
@@ -41,12 +59,33 @@ export const DeviceConfigSchema = z
     emergency: z
       .object({
         primaryCaretakerUserId: z.uuid().nullable(),
+        smsFallback: z.boolean(),
       })
       .strict(),
     home: z
       .object({
         pinnedContactIds: z.array(z.string().trim().min(1).max(64)).max(4),
-        weather: weatherSchema,
+        weather: z
+          .object({
+            mode: z.enum(["city", "location"]),
+            city: z.string().trim().max(80).nullable(),
+            lat: z.number().min(-90).max(90).nullable(),
+            lon: z.number().min(-180).max(180).nullable(),
+          })
+          .strict(),
+        inactivityReturnSec: z.number().int().min(15).max(600),
+      })
+      .strict(),
+    reminders: z.array(reminderSchema).max(20),
+    voice: z
+      .object({
+        clips: z.array(voiceClipSchema).max(40),
+        ttsRate: z.number().min(0.5).max(1.5),
+      })
+      .strict(),
+    apps: z
+      .object({
+        visible: z.array(z.string().trim().min(1).max(200)).max(40),
       })
       .strict(),
   })
@@ -62,6 +101,17 @@ export const DeviceConfigSchema = z
         });
       }
       ids.add(contact.id);
+      const phoneIds = new Set<string>();
+      contact.phones.forEach((phone, phoneIndex) => {
+        if (phoneIds.has(phone.id)) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Phone ids must be unique on a contact",
+            path: ["contacts", index, "phones", phoneIndex, "id"],
+          });
+        }
+        phoneIds.add(phone.id);
+      });
       if (contact.phones.filter((phone) => phone.isDefault).length > 1) {
         ctx.addIssue({
           code: "custom",
@@ -82,6 +132,14 @@ export const DeviceConfigSchema = z
         path: ["home", "pinnedContactIds"],
       });
     }
+
+    const reminderIds = new Set<string>();
+    config.reminders.forEach((reminder, index) => {
+      if (reminderIds.has(reminder.id)) {
+        ctx.addIssue({ code: "custom", message: "Reminder ids must be unique", path: ["reminders", index, "id"] });
+      }
+      reminderIds.add(reminder.id);
+    });
   });
 
 export type DeviceConfig = z.infer<typeof DeviceConfigSchema>;
@@ -90,11 +148,15 @@ export type DeviceConfig = z.infer<typeof DeviceConfigSchema>;
 export const DEFAULT_DEVICE_CONFIG: DeviceConfig = DeviceConfigSchema.parse({
   locale: "hi",
   contacts: [],
-  emergency: { primaryCaretakerUserId: null },
+  emergency: { primaryCaretakerUserId: null, smsFallback: true },
   home: {
     pinnedContactIds: [],
-    weather: { locationName: null },
+    weather: { mode: "city", city: null, lat: null, lon: null },
+    inactivityReturnSec: 60,
   },
+  reminders: [],
+  voice: { clips: [], ttsRate: 0.9 },
+  apps: { visible: [] },
 });
 
 /** If-Match carries the config version the caller read. `*` and missing values are rejected. */

@@ -45,16 +45,22 @@ const validConfig = {
     {
       id: "amma",
       name: "Amma",
-      phones: [{ e164: "+919876543210", label: "mobile", whatsapp: true, isDefault: true }],
+      phones: [{ id: "p1", e164: "+919876543210", label: "mobile", whatsapp: true, isDefault: true }],
       order: 0,
       pinned: true,
+      photoAssetId: null,
+      nameClipId: null,
     },
   ],
-  emergency: { primaryCaretakerUserId: null },
+  emergency: { primaryCaretakerUserId: null, smsFallback: true },
   home: {
     pinnedContactIds: ["amma"],
-    weather: { locationName: "Jammu" },
+    weather: { mode: "city", city: "Jammu", lat: null, lon: null },
+    inactivityReturnSec: 60,
   },
+  reminders: [],
+  voice: { clips: [], ttsRate: 0.9 },
+  apps: { visible: [] },
 };
 
 function storedRow(version: number, actor: { user?: string | null; device?: string | null } = {}) {
@@ -88,9 +94,11 @@ describe("device config schema", () => {
     const contacts = [1, 2, 3, 4, 5].map((n) => ({
       id: `c${n}`,
       name: `Contact ${n}`,
-      phones: [{ e164: "+919876543210", label: "", whatsapp: false, isDefault: true }],
+      phones: [{ id: `p${n}`, e164: "+919876543210", label: "", whatsapp: false, isDefault: true }],
       order: n,
       pinned: true,
+      photoAssetId: null,
+      nameClipId: null,
     }));
     expect(
       DeviceConfigSchema.safeParse({
@@ -102,6 +110,7 @@ describe("device config schema", () => {
 
     const twoDefaults = structuredClone(validConfig);
     twoDefaults.contacts[0]!.phones.push({
+      id: "p2",
       e164: "+919876543211",
       label: "home",
       whatsapp: false,
@@ -163,8 +172,15 @@ describe("device config HTTP", () => {
     expect(data.config).toMatchObject({
       locale: "hi",
       contacts: [],
-      emergency: { primaryCaretakerUserId: null },
-      home: { pinnedContactIds: [], weather: { locationName: null } },
+      emergency: { primaryCaretakerUserId: null, smsFallback: true },
+      home: {
+        pinnedContactIds: [],
+        weather: { mode: "city", city: null, lat: null, lon: null },
+        inactivityReturnSec: 60,
+      },
+      reminders: [],
+      voice: { clips: [], ttsRate: 0.9 },
+      apps: { visible: [] },
     });
     expect(data.config).not.toHaveProperty("pin");
     expect(data).not.toHaveProperty("device_id");

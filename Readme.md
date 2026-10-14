@@ -151,10 +151,12 @@ only on the phone; there is no backend path to read or reset it.
 `update_emergency_number { e164 }`. Statuses: `pending → running → completed|failed`, or `expired`.
 
 **Device config** is one JSON document per device (`device_configs.version`, history in
-`device_config_history`). Shape: `locale`, `contacts[]` (`id`, `name`, `phones[{e164, label, whatsapp, isDefault}]`,
-`order`, `pinned`), `emergency.primaryCaretakerUserId`, `home.pinnedContactIds` (max 4, and the same set as
-contacts with `pinned: true`), `home.weather.locationName`. First write uses `If-Match: 0`. The response
-`version` is also the `ETag`. The caretaker PIN is not in this document and there is no remote PIN reset.
+`device_config_history`). Shape: `locale`; `contacts[]` (`id`, `name`, `phones[{id, label, e164, whatsapp, isDefault}]`,
+`order`, `pinned`, `photoAssetId`, `nameClipId`); `emergency` (`primaryCaretakerUserId`, `smsFallback`);
+`home.pinnedContactIds` (max 4, same set as contacts with `pinned: true`); `home.weather` (`mode: city|location`,
+`city`, `lat`, `lon`); `home.inactivityReturnSec` (15–600); `reminders[]` (`id`, `label`, `hour`, `minute`, `days`,
+`enabled`); `voice` (`clips[{id, slot, assetId}]`, `ttsRate`); `apps.visible`. First write uses `If-Match: 0`.
+The response `version` is also the `ETag`. The caretaker PIN is not in this document and there is no remote PIN reset.
 
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,
