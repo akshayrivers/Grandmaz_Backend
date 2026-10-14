@@ -1,11 +1,14 @@
 import { z } from "zod";
 
-export const linkCaretakerSchema = z.object({
+export const caretakerParamsSchema = z.object({
   deviceId: z.string().min(1),
-  email: z.string().email(),
-  role: z.enum(["primary", "secondary", "admin"]).optional(),
+  caretakerId: z.uuid("Invalid caretaker id"),
 });
 
 export const updateCaretakerRoleSchema = z.object({
-  role: z.enum(["primary", "secondary", "admin"]),
+  role: z.enum(["caretaker", "viewer"]),
+});
+
+export const transferPrimarySchema = z.object({
+  caretakerId: z.uuid("Invalid caretaker id"),
 });

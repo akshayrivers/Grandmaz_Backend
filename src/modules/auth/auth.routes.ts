@@ -1,14 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { authController } from "./auth.controller.js";
 import { authenticateFirebaseUser } from "../../middleware/authenticate.js";
+import { PUBLIC_ROUTE_RATE_LIMIT } from "../../shared/constants/index.js";
 
 export async function authRoutes(fastify: FastifyInstance) {
-  // Public route: verify token passed in request body
-  fastify.post("/verify", authController.verifyToken);
+  fastify.post("/verify", { config: PUBLIC_ROUTE_RATE_LIMIT }, authController.verifyToken);
 
-  // Public route: accept invitation with Firebase token + invitation token
-  fastify.post("/accept-invitation", authController.acceptInvitation);
+  fastify.post(
+    "/accept-invitation",
+    { config: PUBLIC_ROUTE_RATE_LIMIT, preHandler: [authenticateFirebaseUser] },
+    authController.acceptInvitation
+  );
 
-  // Protected route: get current authenticated user profile
   fastify.get("/me", { preHandler: [authenticateFirebaseUser] }, authController.getCurrentUser);
 }

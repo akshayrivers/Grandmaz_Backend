@@ -4,167 +4,59 @@ import {
   RegisterDeviceSchema,
   CreateChallengeSchema,
   VerifyChallengeSchema,
-  GetDeviceParamsSchema,
+  RenameDeviceSchema,
 } from "./device.schemas.js";
+import { parseOrThrow } from "../../shared/errors/app-error.js";
+import { getCurrentUser } from "../../middleware/authenticate.js";
+import { getDeviceAccess } from "../../middleware/authorize.js";
 
 export class DeviceController {
-  /**
-   * POST /api/devices/register
-   * Register a new device with public key & metadata. Returns device & initial challenge.
-   */
+  /** POST /api/devices/register — public, rate-limited. */
   async registerDevice(request: FastifyRequest, reply: FastifyReply) {
-    const parseResult = RegisterDeviceSchema.safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: parseResult.error.issues[0]?.message || "Invalid payload",
-      });
-    }
-
-    try {
-      const result = await deviceService.registerDevice(parseResult.data);
-      return reply.status(201).send({
-        success: true,
-        data: result.device,
-        challenge: result.challenge,
-      });
-    } catch (err: any) {
-      request.log.error({ err }, "Error registering device");
-      return reply.status(500).send({
-        statusCode: 500,
-        error: "Internal Server Error",
-        message: err.message || "Failed to register device",
-      });
-    }
+    const body = parseOrThrow(RegisterDeviceSchema, request.body);
+    const result = await deviceService.registerDevice({
+      deviceId: body.deviceId,
+      publicKey: body.publicKey,
+      keyAlgorithm: body.keyAlgorithm,
+      deviceMetadata: body.deviceMetadata,
+    });
+    return reply.status(result.created ? 201 : 200).send({ success: true, data: result.device });
   }
 
-  /**
-   * POST /api/devices/challenge
-   * Request a fresh challenge string for a registered device.
-   */
+  /** POST /api/devices/challenge — public, rate-limited. */
   async createChallenge(request: FastifyRequest, reply: FastifyReply) {
-    const parseResult = CreateChallengeSchema.safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: parseResult.error.issues[0]?.message || "Invalid payload",
-      });
-    }
-
-    try {
-      const challenge = await deviceService.createChallenge(parseResult.data.deviceId);
-      return reply.status(200).send({
-        success: true,
-        challenge,
-      });
-    } catch (err: any) {
-      return reply.status(404).send({
-        statusCode: 404,
-        error: "Not Found",
-        message: err.message || "Device not found",
-      });
-    }
+    const { deviceId } = parseOrThrow(CreateChallengeSchema, request.body);
+    const data = await deviceService.createChallenge(deviceId);
+    return reply.send({ success: true, data });
   }
 
-  /**
-   * POST /api/devices/verify-signature
-   * Solves challenge by verifying digital signature against stored public key.
-   */
+  /** POST /api/devices/verify-signature — public, rate-limited; issues the device token. */
   async verifySignature(request: FastifyRequest, reply: FastifyReply) {
-    const parseResult = VerifyChallengeSchema.safeParse(request.body);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: parseResult.error.issues[0]?.message || "Invalid payload",
-      });
-    }
-
-    try {
-      const result = await deviceService.verifySignature(parseResult.data);
-      if (!result.verified) {
-        return reply.status(401).send({
-          statusCode: 401,
-          error: "Unauthorized",
-          message: result.message,
-        });
-      }
-
-      return reply.status(200).send({
-        success: true,
-        data: result,
-      });
-    } catch (err: any) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: err.message || "Failed to verify signature",
-      });
-    }
+    const body = parseOrThrow(VerifyChallengeSchema, request.body);
+    const data = await deviceService.verifySignature(body);
+    return reply.send({ success: true, data });
   }
 
-  /**
-   * GET /api/devices/:deviceId
-   * Fetch device details and verification status.
-   */
-  async getDevice(request: FastifyRequest, reply: FastifyReply) {
-    const parseResult = GetDeviceParamsSchema.safeParse(request.params);
-
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        statusCode: 400,
-        error: "Bad Request",
-        message: parseResult.error.issues[0]?.message || "Invalid parameter",
-      });
-    }
-
-    try {
-      const device = await deviceService.getDevice(parseResult.data.deviceId);
-      return reply.status(200).send({
-        success: true,
-        data: device,
-      });
-    } catch (err: any) {
-      return reply.status(404).send({
-        statusCode: 404,
-        error: "Not Found",
-        message: err.message || "Device not found",
-      });
-    }
-  }
-
-  /**
-   * GET /api/devices
-   * Fetch all devices linked to the authenticated caretaker user.
-   */
+  /** GET /api/devices — devices the caretaker is linked to. */
   async getMyDevices(request: FastifyRequest, reply: FastifyReply) {
-    if (!request.user) {
-      return reply.status(401).send({
-        statusCode: 401,
-        error: "Unauthorized",
-        message: "User not authenticated",
-      });
-    }
+    const user = await getCurrentUser(request);
+    const data = await deviceService.getMyDevices(user.id);
+    return reply.send({ success: true, data });
+  }
 
-    try {
-      const devices = await deviceService.getMyDevices(request.user.uid);
-      return reply.status(200).send({
-        success: true,
-        data: devices,
-      });
-    } catch (err: any) {
-      request.log.error({ err }, "Error fetching caretaker devices");
-      return reply.status(500).send({
-        statusCode: 500,
-        error: "Internal Server Error",
-        message: err.message || "Failed to fetch devices",
-      });
-    }
+  /** GET /api/devices/:deviceId — any linked role. */
+  async getDevice(request: FastifyRequest, reply: FastifyReply) {
+    const access = getDeviceAccess(request);
+    const data = await deviceService.getDeviceForCaretaker(access.userId, access.deviceUuid);
+    return reply.send({ success: true, data });
+  }
+
+  /** PATCH /api/devices/:deviceId — primary only. */
+  async renameDevice(request: FastifyRequest, reply: FastifyReply) {
+    const access = getDeviceAccess(request);
+    const { displayName } = parseOrThrow(RenameDeviceSchema, request.body);
+    const data = await deviceService.renameDevice(access.userId, access.deviceUuid, displayName);
+    return reply.send({ success: true, data });
   }
 }
 

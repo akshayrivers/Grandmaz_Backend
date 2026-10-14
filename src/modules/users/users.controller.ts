@@ -1,38 +1,32 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { usersService } from "./users.service.js";
 import { updateUserProfileSchema } from "./users.schemas.js";
+import { getCurrentUser } from "../../middleware/authenticate.js";
+import { AppError } from "../../shared/errors/app-error.js";
 
 export async function getProfileHandler(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    if (!request.user) {
-      return reply.status(401).send({ error: "Unauthorized" });
-    }
-    const profile = await usersService.getProfileByFirebaseUid(request.user.uid);
-    return reply.send(profile);
-  } catch (err: any) {
-    return reply.status(404).send({ error: err.message || "User profile not found" });
+  if (!request.user) {
+    throw new AppError(401, "UNAUTHENTICATED", "User not authenticated");
   }
+  const profile = await usersService.getProfile(request.user);
+  return reply.send({ success: true, data: profile });
 }
 
 export async function updateProfileHandler(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    if (!request.user) {
-      return reply.status(401).send({ error: "Unauthorized" });
-    }
-    const parseResult = updateUserProfileSchema.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.status(400).send({
-        error: "Validation failed",
-        details: parseResult.error.flatten(),
-      });
-    }
-
-    const updatedProfile = await usersService.updateProfile(request.user.uid, {
-      name: parseResult.data.name,
-      avatarUrl: parseResult.data.avatarUrl,
-    });
-    return reply.send(updatedProfile);
-  } catch (err: any) {
-    return reply.status(400).send({ error: err.message || "Failed to update user profile" });
+  const parsed = updateUserProfileSchema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    const phoneIssue = parsed.error.issues.find((issue) => issue.path[0] === "phoneE164");
+    throw new AppError(
+      400,
+      phoneIssue ? "INVALID_PHONE" : "VALIDATION_ERROR",
+      (phoneIssue ?? parsed.error.issues[0])?.message ?? "Invalid request payload"
+    );
   }
+
+  const user = await getCurrentUser(request);
+  const profile = await usersService.updateProfile(user, request.user?.emailVerified === true, {
+    name: parsed.data.name,
+    phoneE164: parsed.data.phoneE164,
+  });
+  return reply.send({ success: true, data: profile });
 }

@@ -3,44 +3,48 @@ import { query } from "../client.js";
 export interface DeviceStateSnapshotRow {
   id: string;
   device_id: string;
+  device_string_id: string;
   battery_level: number | null;
   battery_status: string | null;
   wifi_ssid: string | null;
-  storage_free_mb: number | null;
+  storage_free_mb: string | number | null;
   installed_apps: any;
   settings: any;
   snapshot_data: any;
   created_at: Date;
 }
 
+const SNAPSHOT_COLUMNS = `s.id, s.device_id, d.device_id AS device_string_id, s.battery_level, s.battery_status,
+  s.wifi_ssid, s.storage_free_mb, s.installed_apps, s.settings, s.snapshot_data, s.created_at`;
+
 export async function createDeviceStateSnapshot(data: {
-  deviceId: string;
+  deviceUuid: string;
   batteryLevel?: number | undefined;
   batteryStatus?: string | undefined;
   wifiSsid?: string | undefined;
   storageFreeMb?: number | undefined;
-  installedApps?: any;
-  settings?: any;
-  snapshotData?: any;
+  installedApps?: unknown;
+  settings?: unknown;
+  snapshotData?: unknown;
 }): Promise<DeviceStateSnapshotRow> {
   const res = await query<DeviceStateSnapshotRow>(
-    `INSERT INTO device_state_snapshots (
-       device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data
+    `WITH s AS (
+       INSERT INTO device_state_snapshots (
+         device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *
      )
-     VALUES (
-       (SELECT id FROM devices WHERE id::text = $1 OR device_id = $1 LIMIT 1),
-       $2, $3, $4, $5, $6, $7, $8
-     )
-     RETURNING id, device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data, created_at`,
+     SELECT ${SNAPSHOT_COLUMNS} FROM s INNER JOIN devices d ON d.id = s.device_id`,
     [
-      data.deviceId,
+      data.deviceUuid,
       data.batteryLevel ?? null,
-      data.batteryStatus || null,
-      data.wifiSsid || null,
+      data.batteryStatus ?? null,
+      data.wifiSsid ?? null,
       data.storageFreeMb ?? null,
-      data.installedApps ? JSON.stringify(data.installedApps) : null,
-      data.settings ? JSON.stringify(data.settings) : null,
-      data.snapshotData ? JSON.stringify(data.snapshotData) : null,
+      data.installedApps === undefined ? null : JSON.stringify(data.installedApps),
+      data.settings === undefined ? null : JSON.stringify(data.settings),
+      data.snapshotData === undefined ? null : JSON.stringify(data.snapshotData),
     ]
   );
   if (!res.rows[0]) {
@@ -49,26 +53,24 @@ export async function createDeviceStateSnapshot(data: {
   return res.rows[0];
 }
 
-export async function getLatestSnapshotByDeviceId(deviceId: string): Promise<DeviceStateSnapshotRow | null> {
+export async function getLatestSnapshotByDeviceUuid(deviceUuid: string): Promise<DeviceStateSnapshotRow | null> {
   const res = await query<DeviceStateSnapshotRow>(
-    `SELECT id, device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data, created_at
-     FROM device_state_snapshots
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
-     ORDER BY created_at DESC
+    `SELECT ${SNAPSHOT_COLUMNS} FROM device_state_snapshots s INNER JOIN devices d ON d.id = s.device_id
+     WHERE s.device_id = $1
+     ORDER BY s.created_at DESC
      LIMIT 1`,
-    [deviceId]
+    [deviceUuid]
   );
-  return res.rows[0] || null;
+  return res.rows[0] ?? null;
 }
 
-export async function listSnapshotsByDeviceId(deviceId: string, limit = 20): Promise<DeviceStateSnapshotRow[]> {
+export async function listSnapshotsByDeviceUuid(deviceUuid: string, limit = 20): Promise<DeviceStateSnapshotRow[]> {
   const res = await query<DeviceStateSnapshotRow>(
-    `SELECT id, device_id, battery_level, battery_status, wifi_ssid, storage_free_mb, installed_apps, settings, snapshot_data, created_at
-     FROM device_state_snapshots
-     WHERE device_id IN (SELECT id FROM devices WHERE device_id = $1 OR id::text = $1)
-     ORDER BY created_at DESC
+    `SELECT ${SNAPSHOT_COLUMNS} FROM device_state_snapshots s INNER JOIN devices d ON d.id = s.device_id
+     WHERE s.device_id = $1
+     ORDER BY s.created_at DESC
      LIMIT $2`,
-    [deviceId, limit]
+    [deviceUuid, limit]
   );
   return res.rows;
 }

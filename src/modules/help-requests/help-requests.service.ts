@@ -1,57 +1,54 @@
 import {
   createHelpRequest,
   findHelpRequestById,
-  listHelpRequestsByDeviceId,
+  listHelpRequestsByDeviceUuid,
   updateHelpRequestStatus,
   type HelpRequestRow,
 } from "../../infra/database/queries/help_requests.queries.js";
+import { AppError } from "../../shared/errors/app-error.js";
 import type { HelpRequestRecord, CreateHelpRequestInput, ResolveHelpRequestInput } from "./help-requests.types.js";
 
+function toHelpRequest(row: HelpRequestRow): HelpRequestRecord {
+  return {
+    id: row.id,
+    deviceId: row.device_string_id,
+    title: row.title,
+    description: row.description,
+    type: row.type,
+    status: row.status,
+    resolvedBy: row.resolved_by,
+    resolvedAt: row.resolved_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export class HelpRequestsService {
-  private mapRowToRecord(row: HelpRequestRow): any {
-    return {
-      id: row.id,
-      deviceId: row.device_id,
-      device_id: row.device_id,
-      title: row.title,
-      description: row.description,
-      type: row.type,
-      status: row.status,
-      resolvedBy: row.resolved_by,
-      resolved_by: row.resolved_by,
-      resolvedAt: row.resolved_at,
-      resolved_at: row.resolved_at,
-      createdAt: row.created_at,
-      created_at: row.created_at,
-      updatedAt: row.updated_at,
-      updated_at: row.updated_at,
-    };
+  async create(deviceUuid: string, input: CreateHelpRequestInput): Promise<HelpRequestRecord> {
+    const row = await createHelpRequest({ deviceUuid, ...input });
+    return toHelpRequest(row);
   }
 
-  async create(input: CreateHelpRequestInput): Promise<HelpRequestRecord> {
-    const row = await createHelpRequest(input);
-    return this.mapRowToRecord(row);
-  }
-
-  async getById(id: string): Promise<HelpRequestRecord> {
+  async findDeviceUuidForRequest(id: string): Promise<string | null> {
     const row = await findHelpRequestById(id);
-    if (!row) {
-      throw new Error("Help request not found");
+    return row?.device_id ?? null;
+  }
+
+  async listForDevice(deviceUuid: string): Promise<HelpRequestRecord[]> {
+    const rows = await listHelpRequestsByDeviceUuid(deviceUuid);
+    return rows.map(toHelpRequest);
+  }
+
+  async updateStatus(id: string, deviceUuid: string, input: ResolveHelpRequestInput): Promise<HelpRequestRecord> {
+    const existing = await findHelpRequestById(id);
+    if (!existing || existing.device_id !== deviceUuid) {
+      throw new AppError(404, "HELP_REQUEST_NOT_FOUND", "Help request not found");
     }
-    return this.mapRowToRecord(row);
-  }
-
-  async listForDevice(deviceId: string): Promise<HelpRequestRecord[]> {
-    const rows = await listHelpRequestsByDeviceId(deviceId);
-    return rows.map((r) => this.mapRowToRecord(r));
-  }
-
-  async updateStatus(id: string, input: ResolveHelpRequestInput): Promise<HelpRequestRecord> {
     const row = await updateHelpRequestStatus(id, input.status, input.resolvedBy);
     if (!row) {
-      throw new Error("Help request not found");
+      throw new AppError(404, "HELP_REQUEST_NOT_FOUND", "Help request not found");
     }
-    return this.mapRowToRecord(row);
+    return toHelpRequest(row);
   }
 }
 

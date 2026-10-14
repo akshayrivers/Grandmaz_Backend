@@ -1,69 +1,114 @@
 import {
   createTask,
+  deliverPendingTasks,
+  expireStaleTasks,
   findTaskById,
-  listTasksByDeviceId,
+  listTasksByDeviceUuid,
   updateTaskStatus,
   type TaskRow,
 } from "../../infra/database/queries/tasks.queries.js";
-import type { TaskRecord, CreateTaskInput, UpdateTaskStatusInput } from "./command.types.js";
+import { AppError } from "../../shared/errors/app-error.js";
+import { auditLogsService } from "../audit-logs/audit-logs.service.js";
+import { COMMAND_TITLES, type Command } from "./commands.schemas.js";
+import type { CommandRecord, DeviceCommand } from "./command.types.js";
+
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "expired"]);
+
+function toCommandRecord(row: TaskRow): CommandRecord {
+  return {
+    id: row.id,
+    deviceId: row.device_string_id,
+    type: row.command,
+    payload: (row.payload as Record<string, unknown> | null) ?? {},
+    status: row.status,
+    result: row.result ?? null,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    deliveredAt: row.delivered_at,
+    completedAt: row.completed_at,
+    expiresAt: row.expires_at,
+  };
+}
+
+function toDeviceCommand(row: TaskRow): DeviceCommand {
+  return {
+    id: row.id,
+    type: row.command,
+    payload: (row.payload as Record<string, unknown> | null) ?? {},
+    status: row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
+}
 
 export class CommandsService {
-  private mapRowToRecord(row: TaskRow): any {
-    return {
-      id: row.id,
-      deviceId: row.device_id,
-      device_id: row.device_id,
-      createdBy: row.created_by,
-      created_by: row.created_by,
-      title: row.title,
-      description: row.description,
-      command: row.command,
-      payload: row.payload,
-      status: row.status,
-      result: row.result,
-      scheduledAt: row.scheduled_at,
-      scheduled_at: row.scheduled_at,
-      completedAt: row.completed_at,
-      completed_at: row.completed_at,
-      createdAt: row.created_at,
-      created_at: row.created_at,
-      updatedAt: row.updated_at,
-      updated_at: row.updated_at,
-    };
-  }
-
-  async create(input: CreateTaskInput): Promise<TaskRecord> {
+  async create(input: {
+    deviceUuid: string;
+    command: Command;
+    expiresInMinutes: number;
+    createdBy: string;
+  }): Promise<CommandRecord> {
+    const { type, ...payload } = input.command;
     const row = await createTask({
-      deviceId: input.deviceId,
-      title: input.title,
-      command: input.command,
-      description: input.description,
-      payload: input.payload,
+      deviceUuid: input.deviceUuid,
+      title: COMMAND_TITLES[type],
+      command: type,
+      payload,
       createdBy: input.createdBy,
-      scheduledAt: input.scheduledAt,
+      expiresAt: new Date(Date.now() + input.expiresInMinutes * 60 * 1000),
     });
-    return this.mapRowToRecord(row);
+    await auditLogsService.record("command.created", {
+      deviceUuid: input.deviceUuid,
+      userId: input.createdBy,
+      details: { commandId: row.id, type },
+    });
+    return toCommandRecord(row);
   }
 
-  async getById(id: string): Promise<TaskRecord> {
+  async findDeviceUuidForTask(id: string): Promise<string | null> {
     const row = await findTaskById(id);
-    if (!row) {
-      throw new Error("Task not found");
-    }
-    return this.mapRowToRecord(row);
+    return row?.device_id ?? null;
   }
 
-  async listForDevice(deviceId: string, status?: string): Promise<TaskRecord[]> {
-    const rows = await listTasksByDeviceId(deviceId, status);
-    return rows.map((r) => this.mapRowToRecord(r));
+  async getById(id: string, deviceUuid: string): Promise<CommandRecord> {
+    const row = await findTaskById(id);
+    if (!row || row.device_id !== deviceUuid) {
+      throw new AppError(404, "COMMAND_NOT_FOUND", "Command not found");
+    }
+    return toCommandRecord(row);
   }
 
-  async updateStatus(id: string, input: UpdateTaskStatusInput): Promise<TaskRecord> {
-    const row = await updateTaskStatus(id, input.status, input.result);
-    if (!row) {
-      throw new Error("Task not found or failed to update");
+  async listForDevice(deviceUuid: string, status?: string): Promise<CommandRecord[]> {
+    await expireStaleTasks(deviceUuid);
+    const rows = await listTasksByDeviceUuid(deviceUuid, status);
+    return rows.map(toCommandRecord);
+  }
+
+  /** Launcher poll: unexpired pending commands, marked delivered. */
+  async deliverPending(deviceUuid: string): Promise<DeviceCommand[]> {
+    await expireStaleTasks(deviceUuid);
+    const rows = await deliverPendingTasks(deviceUuid);
+    return rows.map(toDeviceCommand);
+  }
+
+  async updateStatusFromDevice(
+    deviceUuid: string,
+    id: string,
+    status: "running" | "completed" | "failed",
+    result?: Record<string, unknown>
+  ): Promise<DeviceCommand> {
+    const row = await findTaskById(id);
+    if (!row || row.device_id !== deviceUuid) {
+      throw new AppError(404, "COMMAND_NOT_FOUND", "Command not found");
     }
-    return this.mapRowToRecord(row);
+    if (TERMINAL_STATUSES.has(row.status)) {
+      throw new AppError(409, "COMMAND_FINISHED", `Command is already ${row.status}`);
+    }
+    const updated = await updateTaskStatus(id, status, result);
+    if (!updated) {
+      throw new AppError(404, "COMMAND_NOT_FOUND", "Command not found");
+    }
+    return toDeviceCommand(updated);
   }
 }
 

@@ -1,71 +1,110 @@
+import { withTransaction } from "../../infra/database/client.js";
 import {
-  getCaretakersByDeviceId,
-  linkCaretakerToDevice,
-  unlinkCaretakerFromDevice,
+  deleteCaretakerLink,
+  findActiveLink,
+  getCaretakersByDeviceUuid,
   updateCaretakerRole,
+  type CaretakerWithDetailsRow,
 } from "../../infra/database/queries/device_caretakers.queries.js";
-import { findUserByEmail } from "../../infra/database/queries/users.queries.js";
-import type { CaretakerDetails, LinkCaretakerInput, UpdateCaretakerRoleInput } from "./caretakers.types.js";
+import { AppError } from "../../shared/errors/app-error.js";
+import { auditLogsService } from "../audit-logs/audit-logs.service.js";
+import type { CaretakerDetails } from "./caretakers.types.js";
+
+function toCaretaker(row: CaretakerWithDetailsRow, currentUserId: string): CaretakerDetails {
+  return {
+    caretakerId: row.caretaker_id,
+    email: row.email,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+    phoneE164: row.phone_e164,
+    role: row.role,
+    status: row.status,
+    linkedAt: row.created_at,
+    isMe: row.caretaker_id === currentUserId,
+  };
+}
 
 export class CaretakersService {
-  async getCaretakersForDevice(deviceId: string): Promise<any[]> {
-    const list = await getCaretakersByDeviceId(deviceId);
-    return list.map((item) => ({
-      id: item.id,
-      caretakerId: item.caretaker_id,
-      caretaker_id: item.caretaker_id,
-      deviceId: item.device_id,
-      device_id: item.device_id,
-      role: item.role,
-      status: item.status,
-      email: item.email,
-      name: item.name,
-      avatarUrl: item.avatar_url,
-      avatar_url: item.avatar_url,
-      createdAt: item.created_at,
-      created_at: item.created_at,
-      caretaker: {
-        id: item.caretaker_id,
-        email: item.email,
-        name: item.name,
-        avatarUrl: item.avatar_url,
-        avatar_url: item.avatar_url,
-        role: item.role,
-      },
-    }));
+  async listForDevice(deviceUuid: string, currentUserId: string): Promise<CaretakerDetails[]> {
+    const rows = await getCaretakersByDeviceUuid(deviceUuid);
+    return rows.map((row) => toCaretaker(row, currentUserId));
   }
 
-  async linkCaretaker({ deviceId, email, role }: LinkCaretakerInput): Promise<CaretakerDetails> {
-    const user = await findUserByEmail(email);
-    if (!user) {
-      throw new Error(`No caretaker user found with email ${email}`);
+  /** Primary changes another caretaker between `caretaker` and `viewer`. */
+  async changeRole(input: {
+    deviceUuid: string;
+    actorId: string;
+    caretakerId: string;
+    role: "caretaker" | "viewer";
+  }): Promise<CaretakerDetails> {
+    if (input.caretakerId === input.actorId) {
+      throw new AppError(409, "PRIMARY_CANNOT_DEMOTE_SELF", "Transfer the primary role to someone else first");
+    }
+    const link = await findActiveLink(input.caretakerId, input.deviceUuid);
+    if (!link) {
+      throw new AppError(404, "CARETAKER_NOT_FOUND", "Caretaker is not linked to this device");
+    }
+    await updateCaretakerRole(input.caretakerId, input.deviceUuid, input.role);
+    await auditLogsService.record("caretaker.role_changed", {
+      deviceUuid: input.deviceUuid,
+      userId: input.actorId,
+      details: { caretakerId: input.caretakerId, from: link.role, to: input.role },
+    });
+    const updated = (await this.listForDevice(input.deviceUuid, input.actorId)).find(
+      (c) => c.caretakerId === input.caretakerId
+    );
+    if (!updated) {
+      throw new AppError(404, "CARETAKER_NOT_FOUND", "Caretaker is not linked to this device");
+    }
+    return updated;
+  }
+
+  /** Moves the primary role from the current primary (actor) to another linked caretaker atomically. */
+  async transferPrimary(input: { deviceUuid: string; actorId: string; caretakerId: string }): Promise<CaretakerDetails[]> {
+    if (input.caretakerId === input.actorId) {
+      throw new AppError(409, "ALREADY_PRIMARY", "You are already the primary caretaker");
     }
 
-    await linkCaretakerToDevice({
-      caretakerId: user.id,
-      deviceId,
-      role: role || "primary",
+    await withTransaction(async (tx) => {
+      const actor = await findActiveLink(input.actorId, input.deviceUuid, tx);
+      if (!actor || actor.role !== "primary") {
+        throw new AppError(403, "FORBIDDEN", "Only the primary caretaker can transfer the primary role");
+      }
+      const target = await findActiveLink(input.caretakerId, input.deviceUuid, tx);
+      if (!target) {
+        throw new AppError(404, "CARETAKER_NOT_FOUND", "Caretaker is not linked to this device");
+      }
+      // Demote first so the one-active-primary unique index is never violated.
+      await updateCaretakerRole(input.actorId, input.deviceUuid, "caretaker", tx);
+      await updateCaretakerRole(input.caretakerId, input.deviceUuid, "primary", tx);
+      await auditLogsService.record(
+        "caretaker.primary_transferred",
+        {
+          deviceUuid: input.deviceUuid,
+          userId: input.actorId,
+          details: { fromCaretakerId: input.actorId, toCaretakerId: input.caretakerId },
+        },
+        tx
+      );
     });
 
-    const caretakers = await this.getCaretakersForDevice(deviceId);
-    const linked = caretakers.find((c) => c.caretakerId === user.id);
-    if (!linked) {
-      throw new Error("Failed to link caretaker to device");
+    return this.listForDevice(input.deviceUuid, input.actorId);
+  }
+
+  async remove(input: { deviceUuid: string; actorId: string; caretakerId: string }): Promise<void> {
+    if (input.caretakerId === input.actorId) {
+      throw new AppError(409, "PRIMARY_CANNOT_LEAVE", "Transfer the primary role to someone else before leaving");
     }
-    return linked;
-  }
-
-  async removeCaretaker(caretakerId: string, deviceId: string): Promise<boolean> {
-    return unlinkCaretakerFromDevice(caretakerId, deviceId);
-  }
-
-  async updateRole(
-    caretakerId: string,
-    deviceId: string,
-    { role }: UpdateCaretakerRoleInput
-  ): Promise<boolean> {
-    const updated = await updateCaretakerRole(caretakerId, deviceId, role);
-    return !!updated;
+    const link = await findActiveLink(input.caretakerId, input.deviceUuid);
+    if (!link) {
+      throw new AppError(404, "CARETAKER_NOT_FOUND", "Caretaker is not linked to this device");
+    }
+    await deleteCaretakerLink(input.caretakerId, input.deviceUuid);
+    await auditLogsService.record("caretaker.removed", {
+      deviceUuid: input.deviceUuid,
+      userId: input.actorId,
+      details: { caretakerId: input.caretakerId, role: link.role },
+    });
   }
 }
 

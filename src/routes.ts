@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { invitationsRoutes } from "./modules/invitations/invitations.routes.js";
 import { deviceRoutes } from "./modules/devices/device.routes.js";
+import { deviceApiRoutes } from "./modules/device-api/device-api.routes.js";
 import { userRoutes } from "./modules/users/users.routes.js";
 import { caretakersRoutes } from "./modules/caretakers/caretakers.route.js";
 import { commandsRoutes } from "./modules/commands/commands.routes.js";
@@ -10,7 +11,7 @@ import { helpRequestsRoutes } from "./modules/help-requests/help-requests.routes
 import { auditLogsRoutes } from "./modules/audit-logs/audit-logs.routes.js";
 
 export async function registerRoutes(fastify: FastifyInstance) {
-  // Core Auth & Identity routes
+  // Core Auth & Identity routes (caretaker web, Firebase)
   fastify.register(authRoutes, { prefix: "/api/auth" });
   fastify.register(userRoutes, { prefix: "/api/users" });
 
@@ -18,8 +19,13 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.register(invitationsRoutes, { prefix: "/api/invitations" });
   fastify.register(caretakersRoutes, { prefix: "/api/caretakers" });
 
-  // Devices & Remote Execution
+  // Devices: public registration + caretaker views
   fastify.register(deviceRoutes, { prefix: "/api/devices" });
+
+  // Launcher-facing API (device token)
+  fastify.register(deviceApiRoutes, { prefix: "/api/device" });
+
+  // Caretaker views of device data
   fastify.register(commandsRoutes, { prefix: "/api/commands" });
   fastify.register(sharedStateRoutes, { prefix: "/api/shared-state" });
   fastify.register(helpRequestsRoutes, { prefix: "/api/help-requests" });

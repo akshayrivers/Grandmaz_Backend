@@ -1,17 +1,24 @@
+export type AuditAction =
+  | "caretaker.linked"
+  | "caretaker.role_changed"
+  | "caretaker.primary_transferred"
+  | "caretaker.removed"
+  | "invitation.created"
+  | "invitation.revoked"
+  | "command.created";
+
 export interface AuditLogRecord {
   id: string;
   deviceId: string | null;
   userId: string | null;
   action: string;
-  details: any;
-  ipAddress: string | null;
+  details: unknown;
   createdAt: Date;
 }
 
 export interface CreateAuditLogInput {
-  action: string;
-  deviceId?: string | undefined;
+  deviceUuid?: string | undefined;
   userId?: string | undefined;
-  details?: any;
+  details?: unknown;
   ipAddress?: string | undefined;
 }
