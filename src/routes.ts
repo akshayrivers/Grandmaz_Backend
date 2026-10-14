@@ -9,6 +9,7 @@ import { commandsRoutes } from "./modules/commands/commands.routes.js";
 import { sharedStateRoutes } from "./modules/shared-state/shared-state.routes.js";
 import { helpRequestsRoutes } from "./modules/help-requests/help-requests.routes.js";
 import { auditLogsRoutes } from "./modules/audit-logs/audit-logs.routes.js";
+import { sosRoutes } from "./modules/sos/sos.routes.js";
 
 export async function registerRoutes(fastify: FastifyInstance) {
   // Core Auth & Identity routes (caretaker web, Firebase)
@@ -30,6 +31,7 @@ export async function registerRoutes(fastify: FastifyInstance) {
   fastify.register(sharedStateRoutes, { prefix: "/api/shared-state" });
   fastify.register(helpRequestsRoutes, { prefix: "/api/help-requests" });
   fastify.register(auditLogsRoutes, { prefix: "/api/audit-logs" });
+  fastify.register(sosRoutes, { prefix: "/api/sos" });
 
   // Health check endpoint
   fastify.get("/health", async () => {

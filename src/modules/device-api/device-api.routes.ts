@@ -12,6 +12,7 @@ import {
 } from "./device-api.controller.js";
 import { getDeviceConfigHandler, putDeviceConfigHandler } from "../device-config/device-config.controller.js";
 import { getDeviceMediaHandler, mediaBodyLimit, postDeviceMediaHandler } from "../media/media.controller.js";
+import { cancelSosHandler, postSosLocationHandler, startSosHandler } from "../sos/sos.controller.js";
 
 /**
  * Launcher-facing routes. Every route requires a device token (`Bearer dt_…`); the device is
@@ -25,6 +26,9 @@ export async function deviceApiRoutes(fastify: FastifyInstance) {
   fastify.put("/config", putDeviceConfigHandler);
   fastify.post("/media", { ...mediaBodyLimit }, postDeviceMediaHandler);
   fastify.get("/media/:assetId", getDeviceMediaHandler);
+  fastify.post("/sos", startSosHandler);
+  fastify.post("/sos/:id/location", postSosLocationHandler);
+  fastify.post("/sos/:id/cancel", cancelSosHandler);
   fastify.post("/invitations", createInvitationHandler);
   fastify.get("/invitations/:id", getInvitationStatusHandler);
   fastify.put("/push-token", putPushTokenHandler);

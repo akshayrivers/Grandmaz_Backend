@@ -53,7 +53,8 @@ psql "$DATABASE_URL" -f src/infra/database/migrations/001_initial_schema.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/002_security.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/003_device_config.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/004_media.sql
-# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001+002+003+004)
+psql "$DATABASE_URL" -f src/infra/database/migrations/005_sos.sql
+# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001 through 005)
 npm run dev             # :3000 with hot reload
 npm run typecheck && npm test
 ./tests/integration-flow.sh   # device-side flow against a running server (needs jq + openssl)
@@ -163,6 +164,10 @@ The response `version` is also the `ETag`. The caretaker PIN is not in this docu
 `{ kind: photo|audio, contentType, dataBase64, durationMs? }` and return `{ assetId, kind, contentType, byteSize, durationMs }`.
 Photos are jpeg/png/webp up to 2 MB. Audio is up to 5 MB and must declare `durationMs` of 1–30000.
 `GET` the same path with `/:assetId` returns the bytes. Device token or a linked caretaker (write role to upload).
+
+**SOS:** `POST /api/device/sos` `{ latitude?, longitude?, accuracyM? }` starts an alert (201).
+`POST /api/device/sos/:id/location` adds a fix while it is active. `POST /api/device/sos/:id/cancel` stops the alert only.
+Caretakers `GET /api/sos/device/:deviceId` and `POST /api/sos/:id/ack` (primary or caretaker). Cancelling never hangs up the phone call.
 
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,

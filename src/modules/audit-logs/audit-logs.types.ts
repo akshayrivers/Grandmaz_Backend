@@ -7,7 +7,10 @@ export type AuditAction =
   | "invitation.revoked"
   | "command.created"
   | "config.updated"
-  | "media.created";
+  | "media.created"
+  | "sos.started"
+  | "sos.cancelled"
+  | "sos.acknowledged";
 
 export interface AuditLogRecord {
   id: string;
