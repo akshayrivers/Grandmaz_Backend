@@ -1,4 +1,4 @@
--- Full schema for a fresh database (= 001_initial_schema.sql + 002_security.sql).
+-- Full schema for a fresh database (= 001_initial_schema.sql + 002_security.sql + 003_device_config.sql).
 -- Keep in sync with src/infra/database/migrations/.
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -144,6 +144,34 @@ CREATE TABLE IF NOT EXISTS device_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 11. Versioned device config (caretaker PIN is never stored here)
+CREATE TABLE IF NOT EXISTS device_configs (
+  device_id UUID PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+  version INT NOT NULL CHECK (version >= 1),
+  config JSONB NOT NULL,
+  updated_by_user UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by_device UUID REFERENCES devices(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT device_configs_actor_check CHECK (
+    (updated_by_user IS NOT NULL) <> (updated_by_device IS NOT NULL)
+  )
+);
+
+-- 12. History of committed config versions
+CREATE TABLE IF NOT EXISTS device_config_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  version INT NOT NULL CHECK (version >= 1),
+  config JSONB NOT NULL,
+  updated_by_user UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by_device UUID REFERENCES devices(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (device_id, version),
+  CONSTRAINT device_config_history_actor_check CHECK (
+    (updated_by_user IS NOT NULL) <> (updated_by_device IS NOT NULL)
+  )
+);
+
 -- Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_users_firebase_uid ON users(firebase_uid);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -163,3 +191,5 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_device ON audit_logs(device_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_device ON device_state_snapshots(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_challenges_device ON device_challenges(device_id);
 CREATE INDEX IF NOT EXISTS idx_device_tokens_device ON device_tokens(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_config_history_device
+  ON device_config_history(device_id, version DESC);

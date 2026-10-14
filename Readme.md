@@ -32,6 +32,7 @@ src/
 │   ├── caretakers/    # list, role change, transfer primary, remove
 │   ├── devices/       # register / challenge / verify-signature + caretaker device views
 │   ├── device-api/    # launcher-facing /api/device/* (device token)
+│   ├── device-config/ # versioned per-device config (If-Match)
 │   ├── commands/      # typed command union, caretaker create/list
 │   ├── shared-state/  # snapshots (read)
 │   ├── help-requests/ # list / resolve
@@ -50,7 +51,8 @@ npm install
 # Apply the schema (there is no db:init script):
 psql "$DATABASE_URL" -f src/infra/database/migrations/001_initial_schema.sql
 psql "$DATABASE_URL" -f src/infra/database/migrations/002_security.sql
-# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001+002)
+psql "$DATABASE_URL" -f src/infra/database/migrations/003_device_config.sql
+# (fresh databases can instead run src/infra/database/queries/schema.sql, which equals 001+002+003)
 npm run dev             # :3000 with hot reload
 npm run typecheck && npm test
 ./tests/integration-flow.sh   # device-side flow against a running server (needs jq + openssl)
@@ -113,6 +115,8 @@ only on the phone; there is no backend path to read or reset it.
 | PATCH | `/api/device/commands/:id/status` | `{ status: running\|completed\|failed, result? }` | command (409 `COMMAND_FINISHED`) |
 | POST | `/api/device/snapshot` | `{ batteryLevel?, batteryStatus?, wifiSsid?, storageFreeMb?, installedApps?, settings?, snapshotData? }` | `Snapshot` |
 | POST | `/api/device/help-requests` | `{ title, description?, type: general\|sos\|medical\|tech_support }` | `HelpRequest` |
+| GET | `/api/device/config` | — | `DeviceConfig` (version 0 + defaults when nothing is saved yet). `ETag` is the version |
+| PUT | `/api/device/config` | `Config` body, `If-Match: <version>` | `DeviceConfig`. 409 `CONFIG_VERSION_CONFLICT` (`details.currentVersion`) when the version moved. 400 `PRECONDITION_REQUIRED` when `If-Match` is missing |
 
 ### Caretaker web (Firebase)
 
@@ -124,6 +128,8 @@ only on the phone; there is no backend path to read or reset it.
 | GET | `/api/devices` | linked | `DeviceSummary[]` |
 | GET | `/api/devices/:deviceId` | any | `DeviceSummary` |
 | PATCH | `/api/devices/:deviceId` | primary | `{ displayName }` |
+| GET | `/api/devices/:deviceId/config` | any | `DeviceConfig` |
+| PUT | `/api/devices/:deviceId/config` | primary, caretaker | `Config` body + `If-Match` (same 409 rule as the device route). Viewers cannot write |
 | POST | `/api/invitations/device/:deviceId` | primary | `{ email, role?: caretaker\|viewer }` → `{ invitationId, email, role, pairingCode, expiresAt }` |
 | GET | `/api/invitations/device/:deviceId` | primary | `Invitation[]` |
 | DELETE | `/api/invitations/:id` | primary | 204 |
@@ -144,9 +150,15 @@ only on the phone; there is no backend path to read or reset it.
 `show_message { text (1–500), voiceClipId? }`; `set_volume { level 0–100 }`;
 `update_emergency_number { e164 }`. Statuses: `pending → running → completed|failed`, or `expired`.
 
+**Device config** is one JSON document per device (`device_configs.version`, history in
+`device_config_history`). Shape: `locale`, `contacts[]` (`id`, `name`, `phones[{e164, label, whatsapp, isDefault}]`,
+`order`, `pinned`), `emergency.primaryCaretakerUserId`, `home.pinnedContactIds` (max 4, and the same set as
+contacts with `pinned: true`), `home.weather.locationName`. First write uses `If-Match: 0`. The response
+`version` is also the `ETag`. The caretaker PIN is not in this document and there is no remote PIN reset.
+
 **Audit log actions** (written automatically): `caretaker.linked`, `caretaker.role_changed`,
 `caretaker.primary_transferred`, `caretaker.removed`, `invitation.created`, `invitation.revoked`,
-`command.created`.
+`command.created`, `config.updated` (version only — contact phone numbers are not copied into the audit row).
 
 ## Email
 

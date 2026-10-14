@@ -32,7 +32,8 @@ export function buildApp(options: { logger?: FastifyServerOptions["logger"] } = 
       cb(null, !origin || allowedOrigins.has(origin.replace(/\/+$/, "")));
     },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type"],
+    allowedHeaders: ["Authorization", "Content-Type", "If-Match"],
+    exposedHeaders: ["ETag"],
     credentials: false,
   });
 
