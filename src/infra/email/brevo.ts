@@ -41,12 +41,19 @@ export function parseFromAddress(from: string): BrevoSender {
  * and Brevo's API is reached on port 443.
  */
 export async function sendViaBrevo(message: BrevoMessage): Promise<string | undefined> {
+  const apiKey = message.apiKey.trim();
+  if (apiKey.startsWith("xsmtpsib-")) {
+    throw new Error(
+      "BREVO_API_KEY is an SMTP key. In Brevo open SMTP & API, then API keys, and create a key that starts with xkeysib-",
+    );
+  }
+
   const response = await fetch(BREVO_URL, {
     method: "POST",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
-      "api-key": message.apiKey,
+      "api-key": apiKey,
     },
     body: JSON.stringify({
       sender: parseFromAddress(message.from),

@@ -53,6 +53,23 @@ describe("sendViaBrevo", () => {
     });
   });
 
+  it("rejects an SMTP key before calling Brevo", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sendViaBrevo({
+        apiKey: "xsmtpsib-example",
+        from: "caretaker@example.com",
+        to: "daughter@example.com",
+        subject: "Invitation",
+        html: "<p>hello</p>",
+        text: "hello",
+      }),
+    ).rejects.toThrow("xkeysib-");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails when Brevo rejects the message", async () => {
     vi.stubGlobal(
       "fetch",
