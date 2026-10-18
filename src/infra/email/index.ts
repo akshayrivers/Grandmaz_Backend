@@ -22,7 +22,7 @@ export async function sendInvitationEmail({
   deviceName,
 }: SendInvitationOptions): Promise<{ delivered: boolean; messageId?: string | undefined }> {
   const inviteUrl = buildInvitationUrl(invitationToken);
-  const transport = getTransporter();
+  const transport = await getTransporter();
   const { subject, html, text } = renderMagicLinkEmail({ inviteUrl, deviceName });
 
   if (!transport) {

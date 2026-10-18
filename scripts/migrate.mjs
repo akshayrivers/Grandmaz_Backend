@@ -1,7 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import pg from "pg";
+
+dotenv.config({ quiet: true });
 
 const migrationsDir = join(
   dirname(fileURLToPath(import.meta.url)),

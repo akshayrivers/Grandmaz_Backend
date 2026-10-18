@@ -5,7 +5,12 @@ dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().default(3000),
+  // Number("") is 0, and listen(0) asks the OS for a random port. A blank PORT
+  // must stay unset so the default applies instead of binding dynamically.
+  PORT: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.coerce.number().int().min(1).max(65535).default(3000),
+  ),
   HOST: z.string().default("0.0.0.0"),
 
   // Database config
