@@ -27,7 +27,12 @@ const envSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
 
-  // SMTP / Email Config
+  // SMTP / Email Config. BREVO_API_KEY sends invitation mail over HTTPS (port 443).
+  // Render's free instance blocks SMTP ports 25, 465, and 587.
+  BREVO_API_KEY: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(465),
   SMTP_USER: z.string().optional(),
