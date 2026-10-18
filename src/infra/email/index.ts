@@ -25,7 +25,7 @@ export async function sendInvitationEmail({
   const inviteUrl = buildInvitationUrl(invitationToken);
   const { subject, html, text } = renderMagicLinkEmail({ inviteUrl, deviceName });
 
-  if (env.BREVO_API_KEY) {
+  if (env.BREVO_API_KEY?.startsWith("xkeysib-")) {
     const messageId = await sendViaBrevo({
       apiKey: env.BREVO_API_KEY,
       from: env.EMAIL_FROM,
