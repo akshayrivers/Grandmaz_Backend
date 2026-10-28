@@ -6,6 +6,7 @@ import { usersService, toUserProfile } from "../users/users.service.js";
 import { verifyFirebaseIdToken } from "../../infra/firebase/auth.js";
 import { AppError, parseOrThrow } from "../../shared/errors/app-error.js";
 import { extractBearerToken } from "../../middleware/authenticate.js";
+import { isLocalCaretakerToken, localCaretakerUser } from "../../config/local-flow.js";
 
 export class AuthController {
   /**
@@ -15,6 +16,11 @@ export class AuthController {
    */
   async verifyToken(request: FastifyRequest, reply: FastifyReply) {
     const idToken = extractBearerToken(request) ?? parseOrThrow(VerifyTokenSchema, request.body).idToken;
+
+    if (isLocalCaretakerToken(idToken)) {
+      const user = await usersService.syncFromFirebase(localCaretakerUser());
+      return reply.send({ success: true, data: toUserProfile(user, true) });
+    }
 
     let firebaseUser;
     try {

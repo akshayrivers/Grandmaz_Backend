@@ -179,7 +179,7 @@ describe("device config HTTP", () => {
         inactivityReturnSec: 60,
       },
       reminders: [],
-      voice: { clips: [], ttsRate: 0.9 },
+      voice: { clips: [], ttsRate: 0.9, model: "gemini-3.8-flash" },
       apps: { visible: [] },
     });
     expect(data.config).not.toHaveProperty("pin");
@@ -330,5 +330,23 @@ describe("device config HTTP", () => {
     expect(paramsOfCall(2)[4]).toBeNull();
     expect(paramsOfCall(4)[1]).toBe("user-1");
     expect(paramsOfCall(4)[2]).toBe("config.updated");
+  });
+
+  it("defaults a missing assistant model and rejects a blank id", () => {
+    const withDefault = DeviceConfigSchema.parse({
+      ...validConfig,
+      voice: { clips: [], ttsRate: 0.9 },
+    });
+    expect(withDefault.voice.model).toBe("gemini-3.8-flash");
+    const prefixed = DeviceConfigSchema.parse({
+      ...validConfig,
+      voice: { clips: [], ttsRate: 0.9, model: "models/gemini-3.8-flash" },
+    });
+    expect(prefixed.voice.model).toBe("gemini-3.8-flash");
+    const blank = DeviceConfigSchema.safeParse({
+      ...validConfig,
+      voice: { clips: [], ttsRate: 0.9, model: "!!!" },
+    });
+    expect(blank.success).toBe(false);
   });
 });

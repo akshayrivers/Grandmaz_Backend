@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { invitationsService, invitationStatus } from "../../src/modules/invitations/invitations.service.js";
+import { sendInvitationEmail } from "../../src/infra/email/index.js";
 import { hashPairingCode, sha256Hex } from "../../src/shared/utils/crypto.js";
 import { AppError } from "../../src/shared/errors/app-error.js";
 import type { AuthenticatedUser } from "../../src/infra/firebase/types.js";
@@ -76,32 +77,66 @@ describe("InvitationsService", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     passThroughTransactions();
+    vi.mocked(sendInvitationEmail).mockResolvedValue({ delivered: false });
   });
 
   describe("createFromDevice", () => {
-    it("returns a 6-digit pairing code but never the raw link token, storing only hashes", async () => {
+    it("stores only hashes, and returns an accept path when the email was not sent", async () => {
       const device = {
         id: "dev-uuid-1",
         device_id: "dev-1",
         display_name: null,
         device_metadata: { model: "Redmi Note 8 Pro" },
       };
-      // findDevice, hasActivePrimary, revokePending, insertInvitation, audit
-      queueRows([device], [], [], [invitationRow()], []);
+      // findDevice, caretakers, hasActivePrimary, revokePending, insertInvitation, audit
+      queueRows([device], [], [], [], [invitationRow()], []);
 
       const result = await invitationsService.createFromDevice("dev-uuid-1", "Daughter@Example.com");
 
       expect(result.pairingCode).toMatch(/^\d{6}$/);
-      expect(Object.keys(result).sort()).toEqual(["expiresAt", "invitationId", "pairingCode"]);
-      const insertParams = paramsOfCall(3);
+      expect(result.role).toBe("primary");
+      expect(result.acceptPath).toMatch(/^\/accept-invitation\?token=/);
+      const token = decodeURIComponent(result.acceptPath!.split("token=")[1] ?? "");
+      const insertParams = paramsOfCall(4);
       expect(insertParams[3]).toMatch(/^[0-9a-f]{64}$/);
       expect(insertParams[4]).toBe(hashPairingCode(String(insertParams[0]), result.pairingCode));
       expect(insertParams).not.toContain(result.pairingCode);
+      expect(insertParams).not.toContain(token);
     });
 
-    it("refuses when the device already has a primary caretaker", async () => {
-      queueRows([{ id: "dev-uuid-1", device_id: "dev-1", display_name: null, device_metadata: null }], [{ "?column?": 1 }]);
-      await expectAppError(invitationsService.createFromDevice("dev-uuid-1", "x@example.com"), 409, "PRIMARY_EXISTS");
+    it("omits the accept path when the email was delivered", async () => {
+      vi.mocked(sendInvitationEmail).mockResolvedValue({ delivered: true });
+      const device = {
+        id: "dev-uuid-1",
+        device_id: "dev-1",
+        display_name: null,
+        device_metadata: null,
+      };
+      queueRows([device], [], [], [], [invitationRow()], []);
+      const result = await invitationsService.createFromDevice("dev-uuid-1", "daughter@example.com");
+      expect(result.acceptPath).toBeUndefined();
+    });
+
+    it("invites another caretaker when a primary already exists", async () => {
+      const device = { id: "dev-uuid-1", device_id: "dev-1", display_name: null, device_metadata: null };
+      queueRows(
+        [device],
+        [{ email: "primary@example.com" }],
+        [{ "?column?": 1 }],
+        [],
+        [invitationRow({ role: "caretaker", email: "x@example.com" })],
+        []
+      );
+      const result = await invitationsService.createFromDevice("dev-uuid-1", "x@example.com");
+      expect(result.role).toBe("caretaker");
+    });
+
+    it("refuses an email that is already linked", async () => {
+      queueRows(
+        [{ id: "dev-uuid-1", device_id: "dev-1", display_name: null, device_metadata: null }],
+        [{ email: "x@example.com" }]
+      );
+      await expectAppError(invitationsService.createFromDevice("dev-uuid-1", "x@example.com"), 409, "ALREADY_LINKED");
     });
   });
 

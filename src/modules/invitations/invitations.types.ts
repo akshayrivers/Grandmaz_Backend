@@ -9,6 +9,11 @@ export interface CreatedInvitation {
   /** Shown once to the inviter (on grandma's phone or to the primary); only its hash is stored. */
   pairingCode: string;
   expiresAt: Date;
+  /**
+   * Set only when the email was not delivered (no SMTP in local dev).
+   * Path plus token, for the helper standing at the phone. Omitted after a real send.
+   */
+  acceptPath?: string;
 }
 
 export interface DeviceInvitationStatus {

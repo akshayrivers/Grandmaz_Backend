@@ -4,6 +4,7 @@ import type { AuthenticatedUser } from "../infra/firebase/types.js";
 import type { UserRow } from "../infra/database/queries/users.queries.js";
 import { AppError } from "../shared/errors/app-error.js";
 import { usersService } from "../modules/users/users.service.js";
+import { isLocalCaretakerToken, localCaretakerUser } from "../config/local-flow.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -29,6 +30,11 @@ export async function authenticateFirebaseUser(request: FastifyRequest, _reply: 
   const idToken = extractBearerToken(request);
   if (!idToken) {
     throw new AppError(401, "UNAUTHENTICATED", "Missing or malformed Authorization header. Expected Bearer token.");
+  }
+
+  if (isLocalCaretakerToken(idToken)) {
+    request.user = localCaretakerUser();
+    return;
   }
 
   try {

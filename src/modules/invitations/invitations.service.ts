@@ -87,44 +87,55 @@ export class InvitationsService {
       details: { invitationId: row.id, role: row.role, byDevice: Boolean(input.createdByDevice) },
     });
 
+    let delivered = false;
     try {
-      await sendInvitationEmail({ toEmail: row.email, invitationToken: token, deviceName: input.deviceName });
+      const sent = await sendInvitationEmail({
+        toEmail: row.email,
+        invitationToken: token,
+        deviceName: input.deviceName,
+      });
+      delivered = sent?.delivered === true;
     } catch (err) {
       // The invitation stays valid; the inviter can revoke and retry.
       console.error("Failed to send invitation email", err instanceof Error ? err.message : err);
     }
 
-    return {
+    const created: CreatedInvitation = {
       invitationId: row.id,
       email: row.email,
       role: row.role,
       pairingCode,
       expiresAt: row.expires_at,
     };
+    if (!delivered) {
+      created.acceptPath = `/accept-invitation?token=${encodeURIComponent(token)}`;
+    }
+    return created;
   }
 
-  /** Initial pairing from grandma's phone: allowed only while the device has no primary caretaker. */
-  async createFromDevice(deviceUuid: string, email: string): Promise<Omit<CreatedInvitation, "email" | "role">> {
+  /**
+   * Pairing from grandma's phone. The first caretaker is primary.
+   * Later invitations from the phone are ordinary caretakers.
+   */
+  async createFromDevice(deviceUuid: string, email: string): Promise<CreatedInvitation> {
     const device = await findDeviceByIdentifier(deviceUuid);
     if (!device) {
       throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found");
     }
-    if (await hasActivePrimary(device.id)) {
-      throw new AppError(
-        409,
-        "PRIMARY_EXISTS",
-        "This device already has a primary caretaker. Ask them to invite more caretakers from the web app."
-      );
+    const cleanEmail = email.toLowerCase().trim();
+    const caretakers = await getCaretakersByDeviceUuid(device.id);
+    if (caretakers.some((c) => c.email.toLowerCase() === cleanEmail)) {
+      throw new AppError(409, "ALREADY_LINKED", "This person is already a caretaker of this device");
     }
+    const role: CaretakerRole = (await hasActivePrimary(device.id)) ? "caretaker" : "primary";
     await revokePendingDeviceInvitations(device.id);
-    const created = await this.create({
+    return this.create({
       deviceUuid: device.id,
       deviceName: deviceDisplayName(device),
-      email,
-      role: "primary",
+      email: cleanEmail,
+      role,
       createdByDevice: device.id,
     });
-    return { invitationId: created.invitationId, pairingCode: created.pairingCode, expiresAt: created.expiresAt };
   }
 
   /** Invitation created by the primary caretaker from the web app. */

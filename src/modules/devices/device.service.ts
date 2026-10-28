@@ -23,6 +23,14 @@ import { getCaretakersByDeviceUuid } from "../../infra/database/queries/device_c
 import { AppError } from "../../shared/errors/app-error.js";
 import { randomHex, randomToken, sha256Hex } from "../../shared/utils/crypto.js";
 import { DEVICE_TOKEN_PREFIX } from "../../middleware/authenticate-device.js";
+import {
+  LOCAL_CHALLENGE,
+  LOCAL_DEVICE_ID,
+  LOCAL_DEVICE_TOKEN,
+  LOCAL_PUBLIC_KEY,
+  LOCAL_SIGNATURE,
+  localFlowEnabled,
+} from "../../config/local-flow.js";
 import type {
   CaretakerDeviceRecord,
   DeviceSelfRecord,
@@ -129,6 +137,28 @@ export class DeviceService {
    * refreshes metadata; a different key is rejected with DEVICE_KEY_MISMATCH.
    */
   async registerDevice(input: RegisterDeviceInput): Promise<RegisterDeviceResult> {
+    // Local compose only. A real key still goes through parse-and-store below.
+    if (
+      localFlowEnabled() &&
+      input.deviceId === LOCAL_DEVICE_ID &&
+      input.publicKey === LOCAL_PUBLIC_KEY
+    ) {
+      const device = await findDeviceByStringId(LOCAL_DEVICE_ID);
+      if (!device) {
+        throw new AppError(500, "LOCAL_FLOW_SEED_MISSING", "Local device was not seeded");
+      }
+      return {
+        created: false,
+        device: {
+          deviceId: device.device_id,
+          isVerified: device.is_verified,
+          keyAlgorithm: input.keyAlgorithm,
+          challenge: LOCAL_CHALLENGE,
+          challengeExpiresAt: new Date(Date.now() + CHALLENGE_TTL_MS),
+        },
+      };
+    }
+
     const { pem } = parsePublicKey(input.publicKey, input.keyAlgorithm);
 
     let created = true;
@@ -195,6 +225,25 @@ export class DeviceService {
    * 5-minute TTL) and issues a 30-day device token. Only the token's SHA-256 is stored.
    */
   async verifySignature({ deviceId, challenge, signature }: VerifyChallengeInput): Promise<VerifyChallengeResult> {
+    // Separate from the signature check. Production never enters this branch:
+    // localFlowEnabled() is false unless the flag is on and NODE_ENV is not production.
+    if (
+      localFlowEnabled() &&
+      deviceId === LOCAL_DEVICE_ID &&
+      challenge === LOCAL_CHALLENGE &&
+      signature === LOCAL_SIGNATURE
+    ) {
+      const seeded = await findDeviceByStringId(LOCAL_DEVICE_ID);
+      if (!seeded) {
+        throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found. Register the device first.");
+      }
+      return {
+        deviceId: seeded.device_id,
+        deviceToken: LOCAL_DEVICE_TOKEN,
+        expiresAt: new Date(Date.now() + DEVICE_TOKEN_TTL_MS),
+      };
+    }
+
     const device = await findDeviceByStringId(deviceId);
     if (!device) {
       throw new AppError(404, "DEVICE_NOT_FOUND", "Device not found. Register the device first.");
@@ -267,6 +316,7 @@ export class DeviceService {
       displayName: device.display_name,
       caretakers: caretakers.map((c) => ({
         caretakerId: c.caretaker_id,
+        email: c.email,
         name: c.name,
         role: c.role,
         phoneE164: c.phone_e164,

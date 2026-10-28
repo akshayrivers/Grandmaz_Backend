@@ -49,6 +49,22 @@ const voiceClipSchema = z
   })
   .strict();
 
+/** Current text model from the Gemini docs. Older Flash ids such as 3.5 and 3.7 are deprecated. */
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+
+const geminiModel = z.preprocess(
+  (value) => {
+    if (value == null || (typeof value === "string" && value.trim() === "")) return DEFAULT_GEMINI_MODEL;
+    return typeof value === "string" ? value.trim().replace(/^models\//, "") : value;
+  },
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "model must be a Gemini model id"),
+);
+
 export const DeviceConfigSchema = z
   .object({
     locale: z
@@ -81,6 +97,7 @@ export const DeviceConfigSchema = z
       .object({
         clips: z.array(voiceClipSchema).max(40),
         ttsRate: z.number().min(0.5).max(1.5),
+        model: geminiModel,
       })
       .strict(),
     apps: z
@@ -155,7 +172,7 @@ export const DEFAULT_DEVICE_CONFIG: DeviceConfig = DeviceConfigSchema.parse({
     inactivityReturnSec: 60,
   },
   reminders: [],
-  voice: { clips: [], ttsRate: 0.9 },
+  voice: { clips: [], ttsRate: 0.9, model: DEFAULT_GEMINI_MODEL },
   apps: { visible: [] },
 });
 

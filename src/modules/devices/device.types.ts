@@ -30,6 +30,7 @@ export interface DeviceSelfRecord {
   displayName: string | null;
   caretakers: Array<{
     caretakerId: string;
+    email: string;
     name: string | null;
     role: CaretakerRole;
     phoneE164: string | null;

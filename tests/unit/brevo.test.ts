@@ -18,14 +18,24 @@ describe("parseFromAddress", () => {
   });
 });
 
+function verifiedSendersResponse(): Response {
+  return new Response(
+    JSON.stringify({ senders: [{ email: "caretaker@example.com", name: "self", active: true }] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
 describe("sendViaBrevo", () => {
   it("posts the invitation over HTTPS with the API key header", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ messageId: "<msg-1>" }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(verifiedSendersResponse())
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ messageId: "<msg-1>" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const messageId = await sendViaBrevo({
@@ -38,8 +48,8 @@ describe("sendViaBrevo", () => {
     });
 
     expect(messageId).toBe("<msg-1>");
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe("https://api.brevo.com/v3/smtp/email");
     expect(init.method).toBe("POST");
     const headers = init.headers as Record<string, string>;
@@ -70,15 +80,35 @@ describe("sendViaBrevo", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses a sender Brevo has not verified", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(verifiedSendersResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sendViaBrevo({
+        apiKey: "test-key",
+        from: "other@example.com",
+        to: "daughter@example.com",
+        subject: "Invitation",
+        html: "<p>hello</p>",
+        text: "hello",
+      }),
+    ).rejects.toThrow("EMAIL_FROM is not a verified Brevo sender");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("fails when Brevo rejects the message", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ message: "sender not verified" }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValueOnce(verifiedSendersResponse())
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ message: "sender not verified" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
     );
 
     await expect(
